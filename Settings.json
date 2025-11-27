@@ -1,0 +1,10 @@
+{
+    "ALLOWED_CATEGORIES" : ["weapon", "armor"],
+
+    "MIN_PROFIT" : "250,000",
+    "MAX_COST" : "3,000,000",
+    "MIN_LISTINGS" : "10",
+    "MIN_DAILY_VOLUME" : "2",
+
+    "WEBHOOK_URL" : ""
+}
