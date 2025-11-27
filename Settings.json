@@ -1,8 +1,8 @@
 {
     "ALLOWED_CATEGORIES" : ["weapon", "armor"],
 
-    "MIN_PROFIT" : "250,000",
-    "MAX_COST" : "3,000,000",
+    "MIN_PROFIT" : "400,000",
+    "MAX_COST" : "5,000,000",
     "MIN_LISTINGS" : "2",
     "MIN_DAILY_VOLUME" : "10",
 

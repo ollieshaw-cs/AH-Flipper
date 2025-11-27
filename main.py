@@ -184,6 +184,7 @@ def find_flips():
             item_id=item_id,
             profit=profit,
             lowest=lowest,
+            secondLowest=second,
             volume=avg_vol,
             uuid=f"/viewauction {uid}"
         )

@@ -11,6 +11,7 @@ class DiscordNotifier:
         item_id: str,
         profit: int,
         lowest: int,
+        secondLowest: int,
         volume: float,
         uuid: str
     ):
@@ -24,8 +25,9 @@ class DiscordNotifier:
             "fields": [
                 {"name": "Item", "value": name, "inline": False},
                 {"name": "SkyBlock ID", "value": item_id, "inline": True},
-                {"name": "Profit", "value": f"{profit:,}", "inline": True},
                 {"name": "Lowest BIN", "value": f"{lowest:,}", "inline": True},
+                {"name": "Second Lowest BIN", "value": f"{secondLowest:,}", "inline": True},
+                {"name": "Profit", "value": f"{profit:,}", "inline": False},
                 {"name": "Daily Volume", "value": f"{volume:.2f}", "inline": True},
                 {"name": "UUID", "value": f"`{uuid}`", "inline": False},
             ],
