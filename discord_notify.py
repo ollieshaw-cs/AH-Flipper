@@ -27,7 +27,7 @@ class DiscordNotifier:
                 {"name": "Profit", "value": f"{profit:,}", "inline": True},
                 {"name": "Lowest BIN", "value": f"{lowest:,}", "inline": True},
                 {"name": "Daily Volume", "value": f"{volume:.2f}", "inline": True},
-                {"name": "UUID", "value": uuid, "inline": False},
+                {"name": "UUID", "value": "`uuid`", "inline": False},
             ],
         }
 
