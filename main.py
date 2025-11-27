@@ -25,18 +25,10 @@ MIN_DAILY_VOLUME = parseSettingsValue(data["MIN_DAILY_VOLUME"])
 
 notifier = DiscordNotifier(WEBHOOK_URL)
 
-# -----------------------------
-# LOAD REFORGES
-# (Only for name formatting, not grouping)
-# -----------------------------
 with open("Reforges.json", "r") as f:
     REFORGES = json.load(f).get("Reforges", [])
 
 
-# -----------------------------
-# CLEAN DISPLAY NAMES
-# (PURELY cosmetic, does NOT affect grouping)
-# -----------------------------
 def clean_name(name: str) -> str:
     banned = ["✪", "✿", "⚚", "✦", "➊", "➋", "➌", "➍", "➎"]
     for c in banned:
