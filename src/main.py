@@ -73,7 +73,7 @@ def load_caches():
 
 def save_caches():
     try:
-        with open("name_cache.json", "w") as f:
+        with open(name_cache_path, "w") as f:
             json.dump(_name_cache, f)
         with gzip.open(tag_cache_path + ".gz", "wt", encoding="utf-8") as f:
             json.dump(_tag_cache, f)
