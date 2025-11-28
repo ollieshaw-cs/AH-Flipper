@@ -1,11 +1,11 @@
 # SkyBlock BIN Flip Finder  
-A high-performance **asynchronous Hypixel SkyBlock BIN flip scanner** with:  
+An **asynchronous Hypixel SkyBlock BIN flip scanner** with:  
 ✓ Automatic profit detection  
 ✓ Item-ID decoding via NBT  
 ✓ Discord webhook notifications  
 ✓ Volume & listing filters  
 ✓ Persistent gzip caching  
-✓ Highly optimized async + multithreaded processing
+✓ Optimized async + multithreaded processing
 
 This tool continuously scans Hypixel SkyBlock BIN auctions and notifies you of profitable flips based on your customized filters.
 
