@@ -2,9 +2,9 @@ import json
 import asyncio
 import aiohttp
 import time
-
+from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Set
 from NBT_Decoder import ItemDecoder
 from discord_notify import DiscordNotifier
 from aiohttp import ClientSession, TCPConnector
@@ -33,14 +33,21 @@ with open("Reforges.json", "r") as f:
     REFORGES = set(json.load(f).get("Reforges", []))
 
 # -----------------------------
-# HELPER FUNCTIONS
+# OPTIMIZED HELPER FUNCTIONS
 # -----------------------------
 
+# Cache clean_name results
+_name_cache: Dict[str, str] = {}
+
 def clean_name(name: str) -> str:
-    banned = ["✪", "✿", "⚚", "✦", "➊", "➋", "➌", "➍", "➎"]
-    for c in banned:
-        name = name.replace(c, "")
-    name = name.strip()
+    if name in _name_cache:
+        return _name_cache[name]
+    
+    # Use translation table for character removal (faster than replace in loop)
+    if not hasattr(clean_name, 'banned_chars'):
+        clean_name.banned_chars = str.maketrans('', '', "✪✿⚚✦➊➋➌➍➎")
+    
+    name = name.translate(clean_name.banned_chars).strip()
 
     # remove reforges
     parts = name.split()
@@ -52,12 +59,14 @@ def clean_name(name: str) -> str:
     hyphen = name.find("-", 5) > 0
     for p in ["Helmet", "Chestplate", "Leggings", "Boots"]:
         if name.startswith(p) and hyphen:
-            return "Perfect " + name
+            name = "Perfect " + name
+            break
 
+    _name_cache[name] = name
     return name
 
 # -----------------------------
-# SKYBLOCK ID DECODER (CACHED)
+# OPTIMIZED SKYBLOCK ID DECODER
 # -----------------------------
 
 _tag_cache: Dict[str, Optional[str]] = {}
@@ -76,22 +85,36 @@ def get_item_id(item_bytes: Any) -> Optional[str]:
     _tag_cache[key] = tag
     return tag
 
+# Batch processing for item IDs
+def get_item_ids_batch(item_bytes_list: List[Any]) -> List[Optional[str]]:
+    return [get_item_id(item_bytes) for item_bytes in item_bytes_list]
+
 # -----------------------------
-# ASYNC AUCTION FETCHING
+# OPTIMIZED ASYNC AUCTION FETCHING
 # -----------------------------
 
-async def fetch_page(session: ClientSession, page: int) -> List[Dict[str, Any]]:
-    url = f"https://api.hypixel.net/v2/skyblock/auctions?page={page}"
-    async with session.get(url) as resp:
-        data = await resp.json()
-        return data.get("auctions", [])
+async def fetch_page(session: ClientSession, page: int, semaphore: asyncio.Semaphore) -> List[Dict[str, Any]]:
+    async with semaphore:
+        try:
+            url = f"https://api.hypixel.net/v2/skyblock/auctions?page={page}"
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get("auctions", [])
+                elif resp.status == 429:  # Rate limited
+                    await asyncio.sleep(1)
+                    return []
+                else:
+                    return []
+        except Exception:
+            return []
 
 async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
-
-    # Use connection pooling and increase limits
-    connector = TCPConnector(limit=100, limit_per_host=20, keepalive_timeout=30)
-    timeout = aiohttp.ClientTimeout(total=300, sock_connect=10, sock_read=30)
+    grouped = defaultdict(list)
+    
+    # More conservative limits to avoid rate limiting
+    connector = TCPConnector(limit=50, limit_per_host=10, keepalive_timeout=30)
+    timeout = aiohttp.ClientTimeout(total=120, sock_connect=10, sock_read=20)
     
     async with ClientSession(connector=connector, timeout=timeout) as session:
         # Get total pages first
@@ -99,39 +122,46 @@ async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
             meta = await meta_resp.json()
             total_pages = meta.get("totalPages", 0)
 
-        # Fetch pages in batches to avoid overwhelming the API
-        BATCH_SIZE = 50  # Adjust based on API rate limits
-        all_auctions = []
+        # Use semaphore to limit concurrent requests
+        semaphore = asyncio.Semaphore(15)  # Reduced concurrency
         
-        for batch_start in range(0, total_pages, BATCH_SIZE):
-            batch_end = min(batch_start + BATCH_SIZE, total_pages)
-            tasks = [fetch_page(session, i) for i in range(batch_start, batch_end)]
-            batch_pages = await asyncio.gather(*tasks, return_exceptions=True)
+        # Fetch all pages with better error handling
+        tasks = []
+        for i in range(total_pages):
+            task = fetch_page(session, i, semaphore)
+            tasks.append(task)
             
-            # Handle exceptions gracefully
-            for page in batch_pages:
-                if not isinstance(page, Exception):
-                    all_auctions.extend(page)
-            
-            # Small delay between batches to be respectful to the API
-            if batch_end < total_pages:
-                await asyncio.sleep(0.1)
+            # Small delay to avoid overwhelming the API
+            if i % 10 == 0:
+                await asyncio.sleep(0.01)
 
-        # Pre-filter auctions before processing
-        filtered_auctions = [
-            auc for auc in all_auctions 
-            if auc.get("bin") and auc.get("category") in ALLOWED_CATEGORIES
-        ]
+        all_pages = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process pages as they complete
+        all_auctions = []
+        for page in all_pages:
+            if isinstance(page, list):
+                all_auctions.extend(page)
 
-        # Process in chunks to reduce memory pressure
-        CHUNK_SIZE = 1000
+        # Early filtering to reduce data processing
+        filtered_auctions = []
+        for auc in all_auctions:
+            if auc.get("bin") and auc.get("category") in ALLOWED_CATEGORIES:
+                filtered_auctions.append(auc)
+
+        # Process in smaller chunks with batch item ID decoding
+        CHUNK_SIZE = 500  # Smaller chunks for better memory usage
+        
         for i in range(0, len(filtered_auctions), CHUNK_SIZE):
             chunk = filtered_auctions[i:i + CHUNK_SIZE]
             item_bytes_chunk = [auc.get("item_bytes") for auc in chunk]
             
-            # Process chunk in thread pool
-            with ThreadPoolExecutor(max_workers=8) as executor:  # Adjust workers based on CPU
-                item_ids = list(executor.map(get_item_id, item_bytes_chunk))
+            # Process item IDs in batches
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                item_ids = await loop.run_in_executor(
+                    executor, get_item_ids_batch, item_bytes_chunk
+                )
             
             # Process the chunk
             for auc, item_id in zip(chunk, item_ids):
@@ -139,7 +169,6 @@ async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
                 display_name = clean_name(full_name)
                 price = auc.get("starting_bid")
                 uuid = auc.get("uuid")
-                item_bytes = auc.get("item_bytes")
 
                 if not item_id:
                     item_id = f"UNKNOWN::{display_name}"
@@ -149,53 +178,74 @@ async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
                     "uuid": uuid,
                     "full_name": full_name,
                     "display_name": display_name,
-                    "item_bytes": item_bytes,
+                    "item_bytes": auc.get("item_bytes"),
                     "id": item_id,
                 }
 
-                if item_id not in grouped:
-                    grouped[item_id] = []
                 grouped[item_id].append(entry)
 
-    return grouped
+    return dict(grouped)
 
 # -----------------------------
-# ASYNC DAILY VOLUME
+# OPTIMIZED DAILY VOLUME FETCHING
 # -----------------------------
+
+# Cache for daily volumes to avoid repeated API calls
+_volume_cache: Dict[str, tuple[float, float]] = {}  # item_id -> (volume, timestamp)
+VOLUME_CACHE_TTL = 300  # 5 minutes
 
 async def get_avg_daily_volume(session: ClientSession, item_id: str) -> Optional[float]:
+    now = time.time()
+    
+    # Check cache first
+    if item_id in _volume_cache:
+        volume, timestamp = _volume_cache[item_id]
+        if now - timestamp < VOLUME_CACHE_TTL:
+            return volume
+    
     try:
         url = f"https://sky.coflnet.com/api/item/price/{item_id}/history/day"
-        async with session.get(url) as resp:
-            data = await resp.json()
-            if not isinstance(data, list) or len(data) == 0:
-                return 0.0
-            return sum(hour.get("volume", 0) for hour in data) / len(data)
+        async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                if isinstance(data, list) and len(data) > 0:
+                    volume = sum(hour.get("volume", 0) for hour in data) / len(data)
+                    _volume_cache[item_id] = (volume, now)
+                    return volume
+            return 0.0
     except Exception:
         return None
 
 # -----------------------------
-# FLIP FINDER
+# OPTIMIZED FLIP FINDER
 # -----------------------------
 
-sent_uuids: List[str] = []
+# Use deque with maxlen to automatically limit memory usage
+sent_uuids = deque(maxlen=10000)
 
 async def find_flips():
     print("[Flip Finder] Running scan…")
     start_time = time.time()
 
     groups = await fetch_bins_async()
-    end_time = time.time()
-    print(f"[API] Fetched bins in {end_time - start_time:.2f}s")
+    fetch_time = time.time() - start_time
+    print(f"[API] Fetched {sum(len(v) for v in groups.values()):,} bins in {fetch_time:.2f}s")
 
-    async with aiohttp.ClientSession() as session:
+    # Early exit if no data
+    if not groups:
+        print("No auction data found")
+        return
+
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
         tasks = []
-
+        valid_items = []
+        
+        # Pre-filter items before making API calls
         for item_id, auctions in groups.items():
-            auctions.sort(key=lambda x: x["price"])
             if len(auctions) < MIN_LISTINGS:
                 continue
-
+                
+            auctions.sort(key=lambda x: x["price"])
             a1 = auctions[0]
             a2 = auctions[1]
 
@@ -203,54 +253,58 @@ async def find_flips():
             second = a2["price"]
             profit = second - lowest
 
-            if profit < MIN_PROFIT or lowest > MAX_COST:
-                continue
+            if profit >= MIN_PROFIT and lowest <= MAX_COST:
+                uid = a1["uuid"]
+                if uid not in sent_uuids:
+                    tasks.append(get_avg_daily_volume(session, item_id))
+                    valid_items.append((item_id, a1, a2, lowest, second, profit, uid))
 
-            uid = a1["uuid"]
-            if uid in sent_uuids:
-                continue
+        if not valid_items:
+            print("No potential flips found")
+            return
 
-            # Schedule daily volume fetch
-            tasks.append((item_id, a1, a2, lowest, second, profit))
+        # Fetch volumes concurrently
+        volumes = await asyncio.gather(*tasks)
+        
+        # Process results
+        found_flips = 0
+        for (item_id, a1, a2, lowest, second, profit, uid), avg_vol in zip(valid_items, volumes):
+            if avg_vol is not None and avg_vol >= MIN_DAILY_VOLUME:
+                sent_uuids.append(uid)
+                found_flips += 1
 
-        # Fetch all daily volumes concurrently
-        results = await asyncio.gather(*[
-            get_avg_daily_volume(session, item_id) for item_id, _, _, _, _, _ in tasks
-        ])
+                print(
+                    f"{a1['full_name']} | ID={item_id} | Profit: {profit:,} | "
+                    f"Lowest: {lowest:,} | Volume: {avg_vol:.2f} | UUID: {uid}"
+                )
 
-        for (item_id, a1, a2, lowest, second, profit), avg_vol in zip(tasks, results):
-            if avg_vol is None or avg_vol < MIN_DAILY_VOLUME:
-                continue
+                notifier.send_flip(
+                    name=a1["full_name"],
+                    item_id=item_id,
+                    profit=profit,
+                    lowest=lowest,
+                    secondLowest=second,
+                    volume=avg_vol,
+                    uuid=f"/viewauction {uid}"
+                )
 
-            uid = a1["uuid"]
-            sent_uuids.append(uid)
-
-            print(
-                f"{a1['full_name']} | ID={item_id} | Profit: {profit:,} | "
-                f"Lowest: {lowest:,} | Volume: {avg_vol:.2f} | UUID: {uid}"
-            )
-
-            notifier.send_flip(
-                name=a1["full_name"],
-                item_id=item_id,
-                profit=profit,
-                lowest=lowest,
-                secondLowest=second,
-                volume=avg_vol,
-                uuid=f"/viewauction {uid}"
-            )
+        print(f"Found {found_flips} flips")
 
 # -----------------------------
-# MAIN LOOP
+# OPTIMIZED MAIN LOOP
 # -----------------------------
 
 cooldown = 10
+min_sleep = 2
 
 async def main_loop():
     while True:
+        loop_start = time.time()
         await find_flips()
-        print(f"Waiting {cooldown} seconds before searching again \n")
-        await asyncio.sleep(cooldown)
+        elapsed = time.time() - loop_start
+        sleep_time = max(min_sleep, cooldown - elapsed)
+        print(f"Waiting {sleep_time:.1f} seconds before searching again\n")
+        await asyncio.sleep(sleep_time)
 
 if __name__ == "__main__":
     asyncio.run(main_loop())
