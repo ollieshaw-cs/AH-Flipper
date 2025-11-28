@@ -228,7 +228,7 @@ async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
 # -----------------------------
 
 _volume_cache: Dict[str, tuple[float, float]] = {}
-VOLUME_CACHE_TTL = 300
+VOLUME_CACHE_TTL = 300 # In Seconds
 
 async def get_avg_daily_volume(session: ClientSession, item_id: str) -> Optional[float]:
     now = time.time()
@@ -257,7 +257,7 @@ async def get_avg_daily_volume(session: ClientSession, item_id: str) -> Optional
 sent_uuids = deque(maxlen=10000)
 
 async def find_flips():
-    print("[Flip Finder] Running scan…")
+    print("\n[Flip Finder] Running scan…")
     start_time = time.time()
 
     groups = await fetch_bins_async()
@@ -324,7 +324,7 @@ async def find_flips():
 # -----------------------------
 
 cooldown = 10
-min_sleep = 1
+min_sleep = 2
 
 async def main_loop():
     asyncio.create_task(auto_save_cache_task())
@@ -334,7 +334,7 @@ async def main_loop():
         await find_flips()
         elapsed = time.time() - loop_start
         sleep_time = max(min_sleep, cooldown - elapsed)
-        print(f"Waiting {sleep_time:.1f} seconds before searching again\n")
+        print(f"Waiting {sleep_time:.1f} seconds before searching again")
         await asyncio.sleep(sleep_time)
 
 if __name__ == "__main__":
