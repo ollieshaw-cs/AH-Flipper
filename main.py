@@ -164,12 +164,12 @@ def find_flips():
         if profit < MIN_PROFIT or lowest > MAX_COST:
             continue
 
-        avg_vol = get_avg_daily_volume(item_id)
-        if avg_vol is None or avg_vol < MIN_DAILY_VOLUME:
-            continue
-
         uid = a1["uuid"]
         if uid in sent_uuids:
+            continue
+
+        avg_vol = get_avg_daily_volume(item_id)
+        if avg_vol is None or avg_vol < MIN_DAILY_VOLUME:
             continue
 
         sent_uuids.append(uid)

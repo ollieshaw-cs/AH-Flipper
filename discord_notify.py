@@ -24,11 +24,11 @@ class DiscordNotifier:
             "color": 0x2ECC71,
             "fields": [
                 {"name": "Item", "value": name, "inline": False},
-                {"name": "SkyBlock ID", "value": item_id, "inline": True},
-                {"name": "Lowest BIN", "value": f"{lowest:,}", "inline": True},
-                {"name": "Second Lowest BIN", "value": f"{secondLowest:,}", "inline": True},
-                {"name": "Profit", "value": f"{profit:,}", "inline": False},
-                {"name": "Daily Volume", "value": f"{volume:.2f}", "inline": True},
+                {"name": "SkyBlock ID", "value": f"`{item_id}`", "inline": False},
+                {"name": "Lowest BIN", "value": f"`{lowest:,}`", "inline": True},
+                {"name": "Second Lowest BIN", "value": f"`{secondLowest:,}`", "inline": True},
+                {"name": "Profit", "value": f"`{profit:,}`", "inline": True},
+                {"name": "Daily Volume", "value": f"`{volume:.2f}`", "inline": True},
                 {"name": "UUID", "value": f"`{uuid}`", "inline": False},
             ],
         }
