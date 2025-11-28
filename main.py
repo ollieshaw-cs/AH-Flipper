@@ -1,24 +1,26 @@
 import json
-import requests
-import time
+import asyncio
+import aiohttp
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Any, Optional
 from NBT_Decoder import ItemDecoder
 from discord_notify import DiscordNotifier
-
-def parseSettingsValue(v : str):
-    new = v.replace(",", "") 
-    return int(new)
+import time
 
 # -----------------------------
-# LOAD CONFIG
+# CONFIG AND SETTINGS
 # -----------------------------
+
+def parseSettingsValue(v: str) -> int:
+    return int(v.replace(",", ""))
+
 with open("Settings.json", "r") as file:
     data = json.load(file)
 
-ALLOWED_CATEGORIES = data["ALLOWED_CATEGORIES"]
+ALLOWED_CATEGORIES = set(data["ALLOWED_CATEGORIES"])
 WEBHOOK_URL = data["WEBHOOK_URL"]
 
-MIN_PROFIT = parseSettingsValue(data["MIN_PROFIT"]) 
+MIN_PROFIT = parseSettingsValue(data["MIN_PROFIT"])
 MAX_COST = parseSettingsValue(data["MAX_COST"])
 MIN_LISTINGS = parseSettingsValue(data["MIN_LISTINGS"])
 MIN_DAILY_VOLUME = parseSettingsValue(data["MIN_DAILY_VOLUME"])
@@ -26,8 +28,11 @@ MIN_DAILY_VOLUME = parseSettingsValue(data["MIN_DAILY_VOLUME"])
 notifier = DiscordNotifier(WEBHOOK_URL)
 
 with open("Reforges.json", "r") as f:
-    REFORGES = json.load(f).get("Reforges", [])
+    REFORGES = set(json.load(f).get("Reforges", []))
 
+# -----------------------------
+# HELPER FUNCTIONS
+# -----------------------------
 
 def clean_name(name: str) -> str:
     banned = ["✪", "✿", "⚚", "✦", "➊", "➋", "➌", "➍", "➎"]
@@ -49,64 +54,59 @@ def clean_name(name: str) -> str:
 
     return name
 
-
 # -----------------------------
 # SKYBLOCK ID DECODER (CACHED)
 # -----------------------------
-_tag_cache: Dict[str, Optional[str]] = {}
 
+_tag_cache: Dict[str, Optional[str]] = {}
 
 def get_item_id(item_bytes: Any) -> Optional[str]:
     if item_bytes is None:
         return None
-
     key = str(item_bytes)
     if key in _tag_cache:
         return _tag_cache[key]
-
     try:
         decoded = ItemDecoder.decode(item_bytes)
         tag = decoded.get("SkyBlock_id")
     except Exception:
         tag = None
-
     _tag_cache[key] = tag
     return tag
 
-
 # -----------------------------
-# DAILY VOLUME FROM COFL API
+# ASYNC AUCTION FETCHING
 # -----------------------------
-def get_avg_daily_volume(item_id: str) -> Optional[float]:
-    try:
-        data = requests.get(
-            f"https://sky.coflnet.com/api/item/price/{item_id}/history/day"
-        ).json()
 
-        if not isinstance(data, list) or len(data) == 0:
-            return 0.0
+async def fetch_page(session: aiohttp.ClientSession, page: int) -> List[Dict[str, Any]]:
+    url = f"https://api.hypixel.net/v2/skyblock/auctions?page={page}"
+    async with session.get(url) as resp:
+        data = await resp.json()
+        return data.get("auctions", [])
 
-        return sum(hour.get("volume", 0) for hour in data) / len(data)
-
-    except Exception:
-        return None
-
-
-# -----------------------------
-# FETCH AUCTIONS + GROUP BY SKYBLOCK-ID
-# -----------------------------
-def fetch_bins() -> Dict[str, List[Dict[str, Any]]]:
+async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
     grouped: Dict[str, List[Dict[str, Any]]] = {}
 
-    meta = requests.get("https://api.hypixel.net/v2/skyblock/auctions").json()
-    total_pages = meta.get("totalPages", 0)
+    async with aiohttp.ClientSession() as session:
+        # Get total pages first
+        meta_resp = await session.get("https://api.hypixel.net/v2/skyblock/auctions")
+        meta = await meta_resp.json()
+        total_pages = meta.get("totalPages", 0)
 
-    for page in range(total_pages):
-        page_data = requests.get(
-            f"https://api.hypixel.net/v2/skyblock/auctions?page={page}"
-        ).json()
+        # Fetch all pages concurrently
+        tasks = [fetch_page(session, i) for i in range(total_pages)]
+        all_pages = await asyncio.gather(*tasks)
 
-        for auc in page_data.get("auctions", []):
+        # Flatten auctions
+        all_auctions = [auc for page in all_pages for auc in page]
+
+        # Decode item_ids in parallel
+        item_bytes_list = [auc.get("item_bytes") for auc in all_auctions]
+        with ThreadPoolExecutor() as executor:
+            item_ids = list(executor.map(get_item_id, item_bytes_list))
+
+        # Process auctions
+        for auc, item_id in zip(all_auctions, item_ids):
             if not auc.get("bin"):
                 continue
             if auc.get("category") not in ALLOWED_CATEGORIES:
@@ -118,10 +118,7 @@ def fetch_bins() -> Dict[str, List[Dict[str, Any]]]:
             uuid = auc.get("uuid")
             item_bytes = auc.get("item_bytes")
 
-            item_id = get_item_id(item_bytes)
             if not item_id:
-                # items missing a proper SkyBlock_id (rare)
-                # fallback: keep them separated safely
                 item_id = f"UNKNOWN::{display_name}"
 
             entry = {
@@ -137,63 +134,98 @@ def fetch_bins() -> Dict[str, List[Dict[str, Any]]]:
 
     return grouped
 
+# -----------------------------
+# ASYNC DAILY VOLUME
+# -----------------------------
+
+async def get_avg_daily_volume(session: aiohttp.ClientSession, item_id: str) -> Optional[float]:
+    try:
+        url = f"https://sky.coflnet.com/api/item/price/{item_id}/history/day"
+        async with session.get(url) as resp:
+            data = await resp.json()
+            if not isinstance(data, list) or len(data) == 0:
+                return 0.0
+            return sum(hour.get("volume", 0) for hour in data) / len(data)
+    except Exception:
+        return None
 
 # -----------------------------
 # FLIP FINDER
 # -----------------------------
+
 sent_uuids: List[str] = []
 
+async def find_flips():
+    print("[Flip Finder] Running scan…")
+    start_time = time.time()
 
-def find_flips():
-    print("Running scan…")
-    groups = fetch_bins()
+    groups = await fetch_bins_async()
+    end_time = time.time()
+    print(f"[API] Fetched bins in {end_time - start_time:.2f}s")
 
-    for item_id, auctions in groups.items():
-        auctions.sort(key=lambda x: x["price"])
+    async with aiohttp.ClientSession() as session:
+        tasks = []
 
-        if len(auctions) < MIN_LISTINGS:
-            continue
+        for item_id, auctions in groups.items():
+            auctions.sort(key=lambda x: x["price"])
+            if len(auctions) < MIN_LISTINGS:
+                continue
 
-        a1 = auctions[0]
-        a2 = auctions[1]
+            a1 = auctions[0]
+            a2 = auctions[1]
 
-        lowest = a1["price"]
-        second = a2["price"]
-        profit = second - lowest
+            lowest = a1["price"]
+            second = a2["price"]
+            profit = second - lowest
 
-        if profit < MIN_PROFIT or lowest > MAX_COST:
-            continue
+            if profit < MIN_PROFIT or lowest > MAX_COST:
+                continue
 
-        uid = a1["uuid"]
-        if uid in sent_uuids:
-            continue
+            uid = a1["uuid"]
+            if uid in sent_uuids:
+                continue
 
-        avg_vol = get_avg_daily_volume(item_id)
-        if avg_vol is None or avg_vol < MIN_DAILY_VOLUME:
-            continue
+            # Schedule daily volume fetch
+            tasks.append((item_id, a1, a2, lowest, second, profit))
 
-        sent_uuids.append(uid)
+        # Fetch all daily volumes concurrently
+        results = await asyncio.gather(*[
+            get_avg_daily_volume(session, item_id) for item_id, _, _, _, _, _ in tasks
+        ])
 
-        print(
-            f"{a1['full_name']} | ID={item_id} | Profit: {profit:,} | "
-            f"Lowest: {lowest:,} | Volume: {avg_vol:.2f} | UUID: {uid}"
-        )
+        for (item_id, a1, a2, lowest, second, profit), avg_vol in zip(tasks, results):
+            if avg_vol is None or avg_vol < MIN_DAILY_VOLUME:
+                continue
 
-        notifier.send_flip(
-            name=a1["full_name"],
-            item_id=item_id,
-            profit=profit,
-            lowest=lowest,
-            secondLowest=second,
-            volume=avg_vol,
-            uuid=f"/viewauction {uid}"
-        )
+            uid = a1["uuid"]
+            sent_uuids.append(uid)
 
+            print(
+                f"{a1['full_name']} | ID={item_id} | Profit: {profit:,} | "
+                f"Lowest: {lowest:,} | Volume: {avg_vol:.2f} | UUID: {uid}"
+            )
+
+            notifier.send_flip(
+                name=a1["full_name"],
+                item_id=item_id,
+                profit=profit,
+                lowest=lowest,
+                secondLowest=second,
+                volume=avg_vol,
+                uuid=f"/viewauction {uid}"
+            )
 
 # -----------------------------
 # MAIN LOOP
 # -----------------------------
-if __name__ == "__main__":
+
+cooldown = 5
+
+async def main_loop():
     while True:
-        find_flips()
-        time.sleep(30)
+        await find_flips()
+        print(f"Waiting {cooldown} seconds before searching again \n")
+        await asyncio.sleep(cooldown)
+
+if __name__ == "__main__":
+    asyncio.run(main_loop())
