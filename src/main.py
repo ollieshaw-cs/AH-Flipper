@@ -1,4 +1,5 @@
 import json
+import requests
 import asyncio
 import aiohttp
 import time
@@ -42,9 +43,11 @@ with open("Reforges.json", "r") as f:
 
 _name_cache: Dict[str, str] = {}
 _tag_cache: Dict[str, Optional[str]] = {}
+_icons_cache = {}
 
 name_cache_path = "Cache\\name_cache.json"
 tag_cache_path = "Cache\\tag_cache"
+item_icons_path = "Cache\\item_icons.json"
 
 def load_caches():
     # --- load name cache ---
@@ -69,6 +72,17 @@ def load_caches():
             print("[Cache] Failed to load tag_cache.json.gz")
     else:
         print(f"{gz_path} doesn't exist")
+
+    # --- Load item_icons cache ---
+    if os.path.exists(item_icons_path):
+        try:
+            with open(item_icons_path, "r") as f:
+                _icons_cache.update(json.load(f))
+            print(f"[Cache] Loaded {_icons_cache.__len__():,} URLs")
+        except:
+            print("[Cache] Failed to load item_icons.json")
+    else:
+        print(f"{item_icons_path} doesn't exist")
 
 
 def save_caches():
@@ -307,14 +321,18 @@ async def find_flips():
                     f"Lowest: {lowest:,} | Volume: {avg_vol:.2f} | UUID: {uid}"
                 )
 
+                itemURL = _icons_cache[item_id]
+
+                if not itemURL or itemURL == None:
+                    itemURL = requests.get(f"https://sky.coflnet.com/api/item/{item_id}/details").json().get("iconUrl")
+
                 notifier.send_flip(
                     name=a1["full_name"],
-                    item_id=item_id,
                     profit=profit,
                     lowest=lowest,
-                    secondLowest=second,
                     volume=avg_vol,
-                    uuid=f"/viewauction {uid}"
+                    uuid=f"/viewauction {uid}",
+                    itemURL=itemURL
                 )
 
         print(f"Found {found_flips} flips")
