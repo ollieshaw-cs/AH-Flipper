@@ -7,13 +7,13 @@ An **asynchronous Hypixel SkyBlock BIN flip scanner** with:
 ✓ Persistent gzip caching  
 ✓ Optimized async + multithreaded processing
 
-This tool continuously scans Hypixel SkyBlock BIN auctions and notifies you of profitable flips based on your customized filters.
+This tool continuously scans Hypixel SkyBlock BIN auctions and notifies you of profitable flips based on customized filters.
 
 ---
 
 ## 🚀 Features
 
-### ⚡ Ultra-Fast Auction Scanning
+### ⚡ Fast Auction Scanning
 - Fetches **all auction pages concurrently** using `aiohttp` with connection pooling.  
 - Uses a `ThreadPoolExecutor` for parallel NBT decoding.
 
