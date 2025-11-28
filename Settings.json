@@ -6,5 +6,5 @@
     "MIN_LISTINGS" : "2",
     "MIN_DAILY_VOLUME" : "10",
 
-    "WEBHOOK_URL" : ""
+    "WEBHOOK_URL" : "ENTER_WEBHOOK_HERE"
 }
