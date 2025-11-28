@@ -1,11 +1,13 @@
 import json
 import asyncio
 import aiohttp
+import time
+
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Any, Optional
 from NBT_Decoder import ItemDecoder
 from discord_notify import DiscordNotifier
-import time
+from aiohttp import ClientSession, TCPConnector
 
 # -----------------------------
 # CONFIG AND SETTINGS
@@ -78,7 +80,7 @@ def get_item_id(item_bytes: Any) -> Optional[str]:
 # ASYNC AUCTION FETCHING
 # -----------------------------
 
-async def fetch_page(session: aiohttp.ClientSession, page: int) -> List[Dict[str, Any]]:
+async def fetch_page(session: ClientSession, page: int) -> List[Dict[str, Any]]:
     url = f"https://api.hypixel.net/v2/skyblock/auctions?page={page}"
     async with session.get(url) as resp:
         data = await resp.json()
@@ -87,50 +89,73 @@ async def fetch_page(session: aiohttp.ClientSession, page: int) -> List[Dict[str
 async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
     grouped: Dict[str, List[Dict[str, Any]]] = {}
 
-    async with aiohttp.ClientSession() as session:
+    # Use connection pooling and increase limits
+    connector = TCPConnector(limit=100, limit_per_host=20, keepalive_timeout=30)
+    timeout = aiohttp.ClientTimeout(total=300, sock_connect=10, sock_read=30)
+    
+    async with ClientSession(connector=connector, timeout=timeout) as session:
         # Get total pages first
-        meta_resp = await session.get("https://api.hypixel.net/v2/skyblock/auctions")
-        meta = await meta_resp.json()
-        total_pages = meta.get("totalPages", 0)
+        async with session.get("https://api.hypixel.net/v2/skyblock/auctions") as meta_resp:
+            meta = await meta_resp.json()
+            total_pages = meta.get("totalPages", 0)
 
-        # Fetch all pages concurrently
-        tasks = [fetch_page(session, i) for i in range(total_pages)]
-        all_pages = await asyncio.gather(*tasks)
+        # Fetch pages in batches to avoid overwhelming the API
+        BATCH_SIZE = 50  # Adjust based on API rate limits
+        all_auctions = []
+        
+        for batch_start in range(0, total_pages, BATCH_SIZE):
+            batch_end = min(batch_start + BATCH_SIZE, total_pages)
+            tasks = [fetch_page(session, i) for i in range(batch_start, batch_end)]
+            batch_pages = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Handle exceptions gracefully
+            for page in batch_pages:
+                if not isinstance(page, Exception):
+                    all_auctions.extend(page)
+            
+            # Small delay between batches to be respectful to the API
+            if batch_end < total_pages:
+                await asyncio.sleep(0.1)
 
-        # Flatten auctions
-        all_auctions = [auc for page in all_pages for auc in page]
+        # Pre-filter auctions before processing
+        filtered_auctions = [
+            auc for auc in all_auctions 
+            if auc.get("bin") and auc.get("category") in ALLOWED_CATEGORIES
+        ]
 
-        # Decode item_ids in parallel
-        item_bytes_list = [auc.get("item_bytes") for auc in all_auctions]
-        with ThreadPoolExecutor() as executor:
-            item_ids = list(executor.map(get_item_id, item_bytes_list))
+        # Process in chunks to reduce memory pressure
+        CHUNK_SIZE = 1000
+        for i in range(0, len(filtered_auctions), CHUNK_SIZE):
+            chunk = filtered_auctions[i:i + CHUNK_SIZE]
+            item_bytes_chunk = [auc.get("item_bytes") for auc in chunk]
+            
+            # Process chunk in thread pool
+            with ThreadPoolExecutor(max_workers=8) as executor:  # Adjust workers based on CPU
+                item_ids = list(executor.map(get_item_id, item_bytes_chunk))
+            
+            # Process the chunk
+            for auc, item_id in zip(chunk, item_ids):
+                full_name = auc.get("item_name")
+                display_name = clean_name(full_name)
+                price = auc.get("starting_bid")
+                uuid = auc.get("uuid")
+                item_bytes = auc.get("item_bytes")
 
-        # Process auctions
-        for auc, item_id in zip(all_auctions, item_ids):
-            if not auc.get("bin"):
-                continue
-            if auc.get("category") not in ALLOWED_CATEGORIES:
-                continue
+                if not item_id:
+                    item_id = f"UNKNOWN::{display_name}"
 
-            full_name = auc.get("item_name")
-            display_name = clean_name(full_name)
-            price = auc.get("starting_bid")
-            uuid = auc.get("uuid")
-            item_bytes = auc.get("item_bytes")
+                entry = {
+                    "price": price,
+                    "uuid": uuid,
+                    "full_name": full_name,
+                    "display_name": display_name,
+                    "item_bytes": item_bytes,
+                    "id": item_id,
+                }
 
-            if not item_id:
-                item_id = f"UNKNOWN::{display_name}"
-
-            entry = {
-                "price": price,
-                "uuid": uuid,
-                "full_name": full_name,
-                "display_name": display_name,
-                "item_bytes": item_bytes,
-                "id": item_id,
-            }
-
-            grouped.setdefault(item_id, []).append(entry)
+                if item_id not in grouped:
+                    grouped[item_id] = []
+                grouped[item_id].append(entry)
 
     return grouped
 
@@ -138,7 +163,7 @@ async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
 # ASYNC DAILY VOLUME
 # -----------------------------
 
-async def get_avg_daily_volume(session: aiohttp.ClientSession, item_id: str) -> Optional[float]:
+async def get_avg_daily_volume(session: ClientSession, item_id: str) -> Optional[float]:
     try:
         url = f"https://sky.coflnet.com/api/item/price/{item_id}/history/day"
         async with session.get(url) as resp:
@@ -219,7 +244,7 @@ async def find_flips():
 # MAIN LOOP
 # -----------------------------
 
-cooldown = 5
+cooldown = 10
 
 async def main_loop():
     while True:
