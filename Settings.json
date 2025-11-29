@@ -4,16 +4,11 @@
     "BLACKLISTED_TAGS" : [],
 
     "Profit" : {
-        "MinProfit" : "100,000",
-
-        "UseProfitCostRatio" : false,
-        "ProfitRatio" : "2"
-
+        "MinProfit" : "1,000,000",
+        "MinProfitPercentage" : 10
     },
 
     "MAX_COST" : "1,000,000,000",
-    "MIN_COST" : "0",
-
     "MIN_LISTINGS" : "2",
     "MIN_DAILY_VOLUME" : "8",
 

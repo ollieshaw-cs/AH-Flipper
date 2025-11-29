@@ -29,14 +29,14 @@ class DiscordNotifier:
                 "fields": [
                     {"name": "Item", "value": name, "inline": False},
                     {"name": "Cost", "value": f"`{lowest:,}`", "inline": True},
-                    {"name": "Profit", "value": f"`{profit:,}`", "inline": True},
+                    {"name": "Profit", "value": f"```ansi\n[32m{profit:,}[0m\n```", "inline": True},
                     {"name": "Daily Volume", "value": f"`{volume:.2f}`", "inline": False},
-                    {"name": "Auction", "value": f"{uuid}", "inline": False},
+                    {"name": "Auction", "value": f"```/viewauction {uuid}                       ```", "inline": False}
                 ],
                 "thumbnail": {"url": "attachment://thumbnail.png"}
             }
 
-            # Correct way to send an attachment with embed
+
             multipart_data = {
                 'payload_json': (None, json.dumps({"embeds": [embed]})),
                 'file': ('thumbnail.png', resized_buf, 'image/png')

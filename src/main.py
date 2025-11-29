@@ -9,7 +9,7 @@ import hashlib
 
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Union
 from NBT_Decoder import ItemDecoder
 from discord_notify import DiscordNotifier
 from aiohttp import ClientSession, TCPConnector
@@ -24,27 +24,34 @@ def parseSettingsValue(v: str) -> float:
     else:
         return int(v.replace(",", ""))
     
+def parsePercent(v: str) -> Union[int, float]:
+    formatted = v
+
+    for char in formatted:
+        if char == "%":
+            formatted = formatted.replace("%", "")
+
+    if "." in formatted:
+        return float(formatted)
+    
+    return int(formatted)
+
+
 if os.path.exists("PRIVATE_SETTINGS.json"):
     with open("PRIVATE_SETTINGS.json", "r") as file:
         data = json.load(file)
+        print("Loaded PRIVATE_SETTINGS...")
 else:
     with open("Settings.json", "r") as file:
         data = json.load(file)
+        print("Loaded Settings...")
 
 ALLOWED_CATEGORIES = set(data["ALLOWED_CATEGORIES"])
 BLACKLISTED_TAGS = data["BLACKLISTED_TAGS"]
 WEBHOOK_URL = data["WEBHOOK_URL"]
 
 MIN_PROFIT = parseSettingsValue(data["Profit"]["MinProfit"])
-UseProfitCostRatio: bool = data["Profit"]["UseProfitCostRatio"]
-
-"""
-    if 'UseProfitCostRatio' = true then MIN_PROFIT will be ignored and it will only find flips
-    where profit >= Cost * ProfitRatio
-"""
-
-ProfitRatio = parseSettingsValue(data["Profit"]["ProfitRatio"])
-if ProfitRatio < 1: ProfitRatio = 1
+MinProfitPercentage = parsePercent(data["Profit"]["MinProfitPercentage"])  # The min profit in % of the item's cost
 
 MAX_COST = parseSettingsValue(data["MAX_COST"])
 MIN_LISTINGS = parseSettingsValue(data["MIN_LISTINGS"])
@@ -60,7 +67,7 @@ with open("Reforges.json", "r") as f:
 # -----------------------------
 
 _name_cache: Dict[str, str] = {}
-_tag_cache: Dict[str, str] = {}  # key = hash of item_bytes, value = SkyBlock_id
+_tag_cache: Dict[str, str] = {}
 _icons_cache: Dict[str, str] = {}
 
 name_cache_path = "Cache\\name_cache.json"
@@ -68,18 +75,13 @@ tag_cache_path = "Cache\\tag_cache"
 item_icons_path = "Cache\\item_icons.json"
 
 # -----------------------------
-# HASH FUNCTION FOR ITEM BYTES
+# HASH FUNCTION
 # -----------------------------
 
 def get_item_hash(item_bytes: Any) -> str:
-    """
-    Generate a short, fixed-length hash for item_bytes.
-    Accepts bytes or str from the auction API.
-    """
     if isinstance(item_bytes, str):
         item_bytes = item_bytes.encode('utf-8')
     return hashlib.sha256(item_bytes).hexdigest()
-
 
 def get_item_id(item_bytes: Any) -> Optional[str]:
     if item_bytes is None:
@@ -99,6 +101,14 @@ def get_item_id(item_bytes: Any) -> Optional[str]:
         _tag_cache[key] = tag
     return tag
 
+def get_item_count(item_bytes):
+    if item_bytes is None:
+        return None
+    try:
+        decoded = ItemDecoder.decode(item_bytes)
+        return decoded.get("Count")
+    except Exception:
+        return None
 
 def get_item_ids_batch(item_bytes_list: List[Any]) -> List[Optional[str]]:
     return [get_item_id(item_bytes) for item_bytes in item_bytes_list]
@@ -108,39 +118,27 @@ def get_item_ids_batch(item_bytes_list: List[Any]) -> List[Optional[str]]:
 # -----------------------------
 
 def load_caches():
-    # Load name cache
     if os.path.exists(name_cache_path):
         try:
             with open(name_cache_path, "r") as f:
                 _name_cache.update(json.load(f))
-            print(f"[Cache] Loaded {_name_cache.__len__():,} names")
         except:
             print("[Cache] Failed to load name_cache.json")
-    else:
-        print(f"{name_cache_path} doesn't exist")
 
-    # Load tag cache
     gz_path = tag_cache_path + ".gz"
     if os.path.exists(gz_path):
         try:
             with gzip.open(gz_path, "rt", encoding="utf-8") as f:
                 _tag_cache.update(json.load(f))
-            print(f"[Cache] Loaded {_tag_cache.__len__():,} tags")
         except:
             print("[Cache] Failed to load tag_cache.gz")
-    else:
-        print(f"{gz_path} doesn't exist")
 
-    # Load icon cache
     if os.path.exists(item_icons_path):
         try:
             with open(item_icons_path, "r") as f:
                 _icons_cache.update(json.load(f))
-            print(f"[Cache] Loaded {_icons_cache.__len__():,} URLs")
         except:
             print("[Cache] Failed to load item_icons.json")
-    else:
-        print(f"{item_icons_path} doesn't exist")
 
 def save_caches():
     try:
@@ -150,9 +148,8 @@ def save_caches():
             json.dump(_tag_cache, f)
         with open(item_icons_path, "w") as f:
             json.dump(_icons_cache, f, indent=4)
-        print("[Cache] Saved caches")
     except Exception as e:
-        print(f"[Cache] Failed to save caches: {e}")
+        print(f"[Cache] Failed: {e}")
 
 atexit.register(save_caches)
 load_caches()
@@ -324,9 +321,16 @@ async def find_flips():
             second = a2["price"]
             profit = second - lowest
 
-            required_profit = lowest * ProfitRatio if UseProfitCostRatio else MIN_PROFIT
+            required_profit = max(MIN_PROFIT, lowest * (MinProfitPercentage / 100))
 
             if profit >= required_profit and lowest <= MAX_COST:
+
+                # REQUIRE: both lowest and second-lowest BIN to be single items (count == 1)
+                if get_item_count(a1["item_bytes"]) != 1:
+                    continue
+                if get_item_count(a2["item_bytes"]) != 1:
+                    continue
+
                 uid = a1["uuid"]
                 if uid not in sent_uuids:
                     tasks.append(get_avg_daily_volume(session, item_id))
@@ -359,11 +363,10 @@ async def find_flips():
 
                 notifier.send_flip(
                     name=a1["full_name"],
-                    #name=item_id,
                     profit=profit,
                     lowest=lowest,
                     volume=avg_vol,
-                    uuid=f"/viewauction {uid}",
+                    uuid=uid,
                     itemURL=itemURL
                 )
 
@@ -373,8 +376,8 @@ async def find_flips():
 # MAIN LOOP
 # -----------------------------
 
-cooldown = 10
-min_sleep = 1
+cooldown = 7
+min_sleep = 2
 
 async def main_loop():
     asyncio.create_task(auto_save_cache_task())
