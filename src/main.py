@@ -11,7 +11,6 @@ from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Any, Optional, Union
 from NBT_Decoder import ItemDecoder
-from discord_notify import DiscordNotifier
 from aiohttp import ClientSession, TCPConnector
 from state import latest_flips
 
@@ -49,7 +48,6 @@ else:
 
 ALLOWED_CATEGORIES = set(data["ALLOWED_CATEGORIES"])
 BLACKLISTED_TAGS = data["BLACKLISTED_TAGS"]
-WEBHOOK_URL = data["WEBHOOK_URL"]
 
 MIN_PROFIT = parseSettingsValue(data["Profit"]["MinProfit"])
 MinProfitPercentage = parsePercent(data["Profit"]["MinProfitPercentage"])  # The min profit in % of the item's cost
@@ -58,7 +56,7 @@ MAX_COST = parseSettingsValue(data["MAX_COST"])
 MIN_LISTINGS = parseSettingsValue(data["MIN_LISTINGS"])
 MIN_DAILY_VOLUME = parseSettingsValue(data["MIN_DAILY_VOLUME"])
 
-notifier = DiscordNotifier(WEBHOOK_URL)
+# Discord webhook support removed — webhook URL no longer required
 
 with open("Reforges.json", "r") as f:
     REFORGES = set(json.load(f).get("Reforges", []))
@@ -362,16 +360,9 @@ async def find_flips():
                             if itemURL:
                                 _icons_cache[item_id] = itemURL
 
-                notifier.send_flip(
-                    name=a1["full_name"],
-                    profit=profit,
-                    lowest=lowest,
-                    volume=avg_vol,
-                    uuid=uid,
-                    itemURL=itemURL
-                )
+                # Discord webhook support was removed; previously this sent a notification.
 
-                latest_flips.append({
+                event_obj = {
                     "name": a1["full_name"],
                     "id": item_id,
                     "profit": profit,
@@ -381,7 +372,13 @@ async def find_flips():
                     "uuid": uid,
                     "icon": itemURL,
                     "timestamp": time.time()
-                })
+                }
+                latest_flips.append(event_obj)
+                try:
+                    import state as _state
+                    _state.publish_to_subscribers(json.dumps(event_obj))
+                except Exception:
+                    pass
 
 
 

@@ -10,7 +10,5 @@
 
     "MAX_COST" : "1,000,000,000",
     "MIN_LISTINGS" : "2",
-    "MIN_DAILY_VOLUME" : "8",
-
-    "WEBHOOK_URL" : ""
+    "MIN_DAILY_VOLUME" : "8"
 }

@@ -130,8 +130,41 @@
             }
         });
 
-        // Initial poll after page load to start the sync loop
-        startPollLoop();
+            // Start EventSource for real-time updates; fallback to polling if unsupported or it errors
+            try {
+                const es = new EventSource('/events');
+                es.onmessage = (ev) => {
+                    try {
+                        const f = JSON.parse(ev.data);
+                        if (!f || !f.uuid) return;
+                        const container = document.querySelector('.grid');
+                        const existing = container.querySelector(`[data-uuid="${f.uuid}"]`);
+                        if (existing) {
+                            updateCard(existing, f);
+                        } else {
+                            const card = createFlipCard(f);
+                            container.insertBefore(card, container.firstChild);
+                        }
+                    } catch (e) {
+                        console.error('Error parsing SSE message', e);
+                    }
+                };
+                es.onerror = () => {
+                    console.warn('EventSource connection failed; falling back to polling');
+                    es.close();
+                    startPollLoop();
+                };
+                // If supported and connected, also periodically update ages (already done by startPollLoop), so start that independently
+                setInterval(() => {
+                    document.querySelectorAll('.flip-age').forEach(el => {
+                        const card = el.closest('.flip-card');
+                        const ts = parseFloat(card.dataset.timestamp || card.getAttribute('data-timestamp') || 0);
+                        if (ts) el.textContent = `${Math.round(Date.now()/1000 - ts)}s ago`;
+                    });
+                }, 1000);
+            } catch (e) {
+                startPollLoop();
+            }
     });
 
     // -------------------------
@@ -240,7 +273,7 @@
     function startPollLoop() {
         fetchAndSyncFlips();
         setInterval(fetchAndSyncFlips, POLL_INTERVAL);
-        // Update ages every second
+        // Update ages every second (kept here for polling mode)
         setInterval(() => {
             document.querySelectorAll('.flip-age').forEach(el => {
                 const card = el.closest('.flip-card');
