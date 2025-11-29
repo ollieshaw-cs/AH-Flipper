@@ -1,12 +1,12 @@
 {
-    "ALLOWED_CATEGORIES" : ["weapon", "armor"],
+    "ALLOWED_CATEGORIES" : ["weapon", "armor", "misc", "accessories"],
 
     "BLACKLISTED_TAGS" : [],
 
     "Profit" : {
-        "MinProfit" : "650,000",
+        "MinProfit" : "100,000",
 
-        "UseProfitCostRatio" : true,
+        "UseProfitCostRatio" : false,
         "ProfitRatio" : "2"
 
     },

@@ -23,9 +23,13 @@ def parseSettingsValue(v: str) -> float:
         return float(v.replace(",", ""))
     else:
         return int(v.replace(",", ""))
-
-with open("Settings.json", "r") as file:
-    data = json.load(file)
+    
+if os.path.exists("PRIVATE_SETTINGS.json"):
+    with open("PRIVATE_SETTINGS.json", "r") as file:
+        data = json.load(file)
+else:
+    with open("Settings.json", "r") as file:
+        data = json.load(file)
 
 ALLOWED_CATEGORIES = set(data["ALLOWED_CATEGORIES"])
 BLACKLISTED_TAGS = data["BLACKLISTED_TAGS"]
