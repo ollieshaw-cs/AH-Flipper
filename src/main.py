@@ -1,4 +1,5 @@
 import json
+import json5
 import requests
 import asyncio
 import aiohttp
@@ -9,7 +10,7 @@ import atexit
 
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional
 from NBT_Decoder import ItemDecoder
 from discord_notify import DiscordNotifier
 from aiohttp import ClientSession, TCPConnector
@@ -18,16 +19,24 @@ from aiohttp import ClientSession, TCPConnector
 # CONFIG AND SETTINGS
 # -----------------------------
 
-def parseSettingsValue(v: str) -> int:
-    return int(v.replace(",", ""))
+def parseSettingsValue(v: str) -> float:
+    if "." in v:
+        return float(v.replace(",", ""))
+    else:
+        return int(v.replace(",", ""))
 
 with open("Settings.json", "r") as file:
-    data = json.load(file)
+    data = json5.load(file)
 
 ALLOWED_CATEGORIES = set(data["ALLOWED_CATEGORIES"])
 WEBHOOK_URL = data["WEBHOOK_URL"]
 
-MIN_PROFIT = parseSettingsValue(data["MIN_PROFIT"])
+MIN_PROFIT = parseSettingsValue(data["Profit"]["MinProfit"])
+UseProfitCostRatio: bool = data["Profit"]["UseProfitCostRatio"]
+ProfitRatio = parseSettingsValue(data["Profit"]["ProfitRatio"])
+
+if ProfitRatio < 1: ProfitRatio = 1
+
 MAX_COST = parseSettingsValue(data["MAX_COST"])
 MIN_LISTINGS = parseSettingsValue(data["MIN_LISTINGS"])
 MIN_DAILY_VOLUME = parseSettingsValue(data["MIN_DAILY_VOLUME"])
@@ -50,7 +59,6 @@ tag_cache_path = "Cache\\tag_cache"
 item_icons_path = "Cache\\item_icons.json"
 
 def load_caches():
-    # --- load name cache ---
     if os.path.exists(name_cache_path):
         try:
             with open(name_cache_path, "r") as f:
@@ -61,7 +69,6 @@ def load_caches():
     else:
         print(f"{name_cache_path} doesn't exist")
 
-    # --- load tag cache (gzip) ---
     gz_path = tag_cache_path + ".gz"
     if os.path.exists(gz_path):
         try:
@@ -73,7 +80,6 @@ def load_caches():
     else:
         print(f"{gz_path} doesn't exist")
 
-    # --- Load item_icons cache ---
     if os.path.exists(item_icons_path):
         try:
             with open(item_icons_path, "r") as f:
@@ -83,7 +89,6 @@ def load_caches():
             print("[Cache] Failed to load item_icons.json")
     else:
         print(f"{item_icons_path} doesn't exist")
-
 
 def save_caches():
     try:
@@ -95,10 +100,7 @@ def save_caches():
     except Exception as e:
         print(f"[Cache] Failed to save caches: {e}")
 
-# Save on shutdown
 atexit.register(save_caches)
-
-# Load on startup
 load_caches()
 
 async def auto_save_cache_task():
@@ -107,25 +109,23 @@ async def auto_save_cache_task():
         save_caches()
 
 # -----------------------------
-# OPTIMIZED HELPER FUNCTIONS
+# HELPER FUNCTIONS
 # -----------------------------
 
 def clean_name(name: str) -> str:
     if name in _name_cache:
         return _name_cache[name]
-    
+
     if not hasattr(clean_name, 'banned_chars'):
         clean_name.banned_chars = str.maketrans('', '', "✪✿⚚✦➊➋➌➍➎")
-    
+
     name = name.translate(clean_name.banned_chars).strip()
 
-    # remove reforges
     parts = name.split()
     while parts and parts[0] in REFORGES:
         parts.pop(0)
     name = " ".join(parts)
 
-    # perfect armor fix
     hyphen = name.find("-", 5) > 0
     for p in ["Helmet", "Chestplate", "Leggings", "Boots"]:
         if name.startswith(p) and hyphen:
@@ -153,7 +153,7 @@ def get_item_ids_batch(item_bytes_list: List[Any]) -> List[Optional[str]]:
     return [get_item_id(item_bytes) for item_bytes in item_bytes_list]
 
 # -----------------------------
-# OPTIMIZED ASYNC AUCTION FETCHING
+# AUCTION FETCHING
 # -----------------------------
 
 async def fetch_page(session: ClientSession, page: int, semaphore: asyncio.Semaphore) -> List[Dict[str, Any]]:
@@ -174,25 +174,19 @@ async def fetch_page(session: ClientSession, page: int, semaphore: asyncio.Semap
 
 async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
     grouped = defaultdict(list)
-    
+
     connector = TCPConnector(limit=50, limit_per_host=10, keepalive_timeout=30)
     timeout = aiohttp.ClientTimeout(total=120, sock_connect=10, sock_read=20)
-    
+
     async with ClientSession(connector=connector, timeout=timeout) as session:
         async with session.get("https://api.hypixel.net/v2/skyblock/auctions") as meta_resp:
             meta = await meta_resp.json()
             total_pages = meta.get("totalPages", 0)
 
         semaphore = asyncio.Semaphore(15)
-        
-        tasks = []
-        for i in range(total_pages):
-            tasks.append(fetch_page(session, i, semaphore))
-            if i % 10 == 0:
-                await asyncio.sleep(0.01)
+        tasks = [fetch_page(session, i, semaphore) for i in range(total_pages)]
 
         all_pages = await asyncio.gather(*tasks, return_exceptions=True)
-        
         all_auctions = []
         for page in all_pages:
             if isinstance(page, list):
@@ -204,17 +198,16 @@ async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
         ]
 
         CHUNK_SIZE = 500
-        
         for i in range(0, len(filtered_auctions), CHUNK_SIZE):
             chunk = filtered_auctions[i:i + CHUNK_SIZE]
             item_bytes_chunk = [auc.get("item_bytes") for auc in chunk]
-            
+
             loop = asyncio.get_event_loop()
             with ThreadPoolExecutor(max_workers=4) as executor:
                 item_ids = await loop.run_in_executor(
                     executor, get_item_ids_batch, item_bytes_chunk
                 )
-            
+
             for auc, item_id in zip(chunk, item_ids):
                 full_name = auc["item_name"]
                 display_name = clean_name(full_name)
@@ -242,7 +235,7 @@ async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
 # -----------------------------
 
 _volume_cache: Dict[str, tuple[float, float]] = {}
-VOLUME_CACHE_TTL = 300 # In Seconds
+VOLUME_CACHE_TTL = 300  # seconds
 
 async def get_avg_daily_volume(session: ClientSession, item_id: str) -> Optional[float]:
     now = time.time()
@@ -250,7 +243,7 @@ async def get_avg_daily_volume(session: ClientSession, item_id: str) -> Optional
         volume, ts = _volume_cache[item_id]
         if now - ts < VOLUME_CACHE_TTL:
             return volume
-    
+
     try:
         url = f"https://sky.coflnet.com/api/item/price/{item_id}/history/day"
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -285,11 +278,11 @@ async def find_flips():
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
         tasks = []
         valid_items = []
-        
+
         for item_id, auctions in groups.items():
             if len(auctions) < MIN_LISTINGS:
                 continue
-                
+
             auctions.sort(key=lambda x: x["price"])
             a1 = auctions[0]
             a2 = auctions[1]
@@ -298,7 +291,9 @@ async def find_flips():
             second = a2["price"]
             profit = second - lowest
 
-            if profit >= MIN_PROFIT and lowest <= MAX_COST:
+            required_profit = lowest * ProfitRatio if UseProfitCostRatio else MIN_PROFIT
+
+            if profit >= required_profit and lowest <= MAX_COST:
                 uid = a1["uuid"]
                 if uid not in sent_uuids:
                     tasks.append(get_avg_daily_volume(session, item_id))
@@ -309,7 +304,7 @@ async def find_flips():
             return
 
         volumes = await asyncio.gather(*tasks)
-        
+
         found_flips = 0
         for (item_id, a1, a2, lowest, second, profit, uid), avg_vol in zip(valid_items, volumes):
             if avg_vol is not None and avg_vol >= MIN_DAILY_VOLUME:
@@ -321,10 +316,13 @@ async def find_flips():
                     f"Lowest: {lowest:,} | Volume: {avg_vol:.2f} | UUID: {uid}"
                 )
 
-                itemURL = _icons_cache[item_id]
-
-                if not itemURL or itemURL == None:
-                    itemURL = requests.get(f"https://sky.coflnet.com/api/item/{item_id}/details").json().get("iconUrl")
+                itemURL = _icons_cache.get(item_id)
+                if not itemURL:
+                    async with session.get(f"https://sky.coflnet.com/api/item/{item_id}/details") as resp:
+                        if resp.status == 200:
+                            itemURL = (await resp.json()).get("iconUrl")
+                            if itemURL:
+                                _icons_cache[item_id] = itemURL
 
                 notifier.send_flip(
                     name=a1["full_name"],
