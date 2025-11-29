@@ -28,10 +28,17 @@ with open("Settings.json", "r") as file:
     data = json.load(file)
 
 ALLOWED_CATEGORIES = set(data["ALLOWED_CATEGORIES"])
+BLACKLISTED_TAGS = data["BLACKLISTED_TAGS"]
 WEBHOOK_URL = data["WEBHOOK_URL"]
 
 MIN_PROFIT = parseSettingsValue(data["Profit"]["MinProfit"])
 UseProfitCostRatio: bool = data["Profit"]["UseProfitCostRatio"]
+
+"""
+    if 'UseProfitCostRatio' = true then MIN_PROFIT will be ignored and it will only find flips
+    where profit >= Cost * ProfitRatio
+"""
+
 ProfitRatio = parseSettingsValue(data["Profit"]["ProfitRatio"])
 if ProfitRatio < 1: ProfitRatio = 1
 
@@ -87,6 +94,7 @@ def get_item_id(item_bytes: Any) -> Optional[str]:
     if tag is not None:
         _tag_cache[key] = tag
     return tag
+
 
 def get_item_ids_batch(item_bytes_list: List[Any]) -> List[Optional[str]]:
     return [get_item_id(item_bytes) for item_bytes in item_bytes_list]
@@ -328,7 +336,7 @@ async def find_flips():
 
         found_flips = 0
         for (item_id, a1, a2, lowest, second, profit, uid), avg_vol in zip(valid_items, volumes):
-            if avg_vol is not None and avg_vol >= MIN_DAILY_VOLUME:
+            if avg_vol is not None and avg_vol >= MIN_DAILY_VOLUME and item_id not in BLACKLISTED_TAGS:
                 sent_uuids.append(uid)
                 found_flips += 1
 
@@ -347,6 +355,7 @@ async def find_flips():
 
                 notifier.send_flip(
                     name=a1["full_name"],
+                    #name=item_id,
                     profit=profit,
                     lowest=lowest,
                     volume=avg_vol,
@@ -361,7 +370,7 @@ async def find_flips():
 # -----------------------------
 
 cooldown = 10
-min_sleep = 2
+min_sleep = 1
 
 async def main_loop():
     asyncio.create_task(auto_save_cache_task())
