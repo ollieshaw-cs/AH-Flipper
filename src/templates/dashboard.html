@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Skyblock Flip Dashboard</title>
+
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        body {
+            background-color: #0e0e11;
+        }
+        .card {
+            background: #1a1a1d;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 0 15px #0005;
+            transition: 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 0 25px #0007;
+        }
+    </style>
+
+    <!-- Auto-refresh removed; replaced with JS polling to allow smooth animations -->
+</head>
+
+<body class="text-gray-200 p-8">
+    <h1 class="text-4xl font-bold mb-6 text-center text-purple-400">
+        SkyBlock Flip Dashboard
+    </h1>
+
+    {% if flips|length == 0 %}
+    <p class="text-center text-gray-400">No flips detected yet...</p>
+    {% endif %}
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for f in flips %}
+        <div class="card flip-card" data-uuid="{{ f.uuid }}" data-timestamp="{{ f.timestamp }}">
+            <div class="flex items-center gap-4">
+                {% if f.icon %}
+                <img src="{{ f.icon }}" class="w-12 h-12 rounded-md">
+                {% endif %}
+
+                <div>
+                    <p class="text-xl font-semibold text-white">{{ f.name }}</p>
+                    <p class="text-xs text-gray-400">{{ f.id }}</p>
+                    {% if f.uuid %}
+                    <div class="mt-1 flex items-center gap-2">
+                        <p class="text-[10px] text-gray-400 select-text">UUID: <span class="font-mono text-xs text-gray-200">{{ f.uuid }}</span></p>
+                        <button
+                            class="copy-uuid-btn text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 px-2 py-1 rounded"
+                            type="button"
+                            aria-label="Copy /viewauction command"
+                            data-uuid="{{ f.uuid }}"
+                        >Copy</button>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+                <div class="mt-4 space-y-1">
+                <p><span class="text-gray-400">Profit:</span> <span class="text-green-400 font-bold flip-profit">{{ "{:,}".format(f.profit) }}</span></p>
+                <p><span class="text-gray-400">Lowest BIN:</span> <span class="flip-lowest">{{ "{:,}".format(f.lowest) }}</span></p>
+                <p><span class="text-gray-400">Second BIN:</span> <span class="flip-second">{{ "{:,}".format(f.second) }}</span></p>
+                <p><span class="text-gray-400">Daily Volume:</span> <span class="flip-volume">{{ "%.2f"|format(f.volume) }}</span></p>
+            </div>
+
+            <p class="text-gray-500 text-xs mt-4 text-right flip-age">
+                {{ (time.time() - f.timestamp)|round }}s ago
+            </p>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+<style>
+/* Insert / fade-in animation for new flips */
+.flip-enter { transform: translateY(8px); opacity: 0; }
+.flip-enter.flip-enter-active { transform: none; opacity: 1; transition: transform 220ms ease, opacity 220ms ease; }
+.flip-exit { transform: none; opacity: 1; }
+.flip-exit.flip-exit-active { transform: translateY(-8px); opacity: 0; transition: transform 220ms ease, opacity 220ms ease; }
+</style>
+
+<script>
+    // Copy to clipboard handler with fallback and temporary label change for feedback
+    async function copyUuid(e) {
+        const btn = e.target;
+        const uuid = btn.dataset.uuid;
+        if (!uuid) return;
+        // Copy the `/viewauction <uuid>` command instead of the plain UUID
+        const command = `/viewauction ${uuid}`;
+        let success = false;
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(command);
+                success = true;
+            } else {
+                // fallback method
+                const input = document.createElement('input');
+                input.value = command;
+                document.body.appendChild(input);
+                input.select();
+                try { success = document.execCommand('copy'); } catch (err) { success = false; }
+                document.body.removeChild(input);
+            }
+        } catch (err) {
+            success = false;
+        }
+
+        const oldText = btn.textContent;
+        if (success) {
+            btn.textContent = 'Copied!';
+            setTimeout(() => { btn.textContent = oldText; }, 1000);
+        } else {
+            btn.textContent = 'Failed';
+            setTimeout(() => { btn.textContent = oldText; }, 1000);
+        }
+    }
+
+    // Attach event listeners on DOM loaded
+    document.addEventListener('DOMContentLoaded', () => {
+        const container = document.querySelector('.grid');
+        // Use event delegation for copy buttons so dynamically-added cards don't need re-attaching
+        container.addEventListener('click', (evt) => {
+            const target = evt.target;
+            if (target.classList && target.classList.contains('copy-uuid-btn')) {
+                copyUuid({ target });
+            }
+        });
+
+        // Initial poll after page load to start the sync loop
+        startPollLoop();
+    });
+
+    // -------------------------
+    // Polling / DOM update logic
+    // -------------------------
+    const POLL_INTERVAL = 3000; // ms
+
+    function formatNumber(x) {
+        try { return x.toLocaleString(); } catch(e) { return x; }
+    }
+
+    function createFlipCard(f) {
+        const card = document.createElement('div');
+        card.className = 'card flip-card flip-enter';
+        card.dataset.uuid = f.uuid || '';
+        if (f.timestamp) card.dataset.timestamp = f.timestamp;
+
+        card.innerHTML = `
+            <div class="flex items-center gap-4">
+                ${f.icon ? `<img src="${f.icon}" class="w-12 h-12 rounded-md">` : ''}
+                <div>
+                    <p class="text-xl font-semibold text-white">${escapeHtml(f.name)}</p>
+                    <p class="text-xs text-gray-400">${escapeHtml(f.id)}</p>
+                    ${f.uuid ? `
+                    <div class="mt-1 flex items-center gap-2">
+                        <p class="text-[10px] text-gray-400 select-text">UUID: <span class="font-mono text-xs text-gray-200">${escapeHtml(f.uuid)}</span></p>
+                        <button class="copy-uuid-btn text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 px-2 py-1 rounded" type="button" aria-label="Copy /viewauction command" data-uuid="${escapeHtml(f.uuid)}">Copy</button>
+                    </div>` : ''}
+                </div>
+            </div>
+            <div class="mt-4 space-y-1">
+                <p><span class="text-gray-400">Profit:</span> <span class="text-green-400 font-bold flip-profit">${formatNumber(f.profit)}</span></p>
+                <p><span class="text-gray-400">Lowest BIN:</span> <span class="flip-lowest">${formatNumber(f.lowest)}</span></p>
+                <p><span class="text-gray-400">Second BIN:</span> <span class="flip-second">${formatNumber(f.second)}</span></p>
+                <p><span class="text-gray-400">Daily Volume:</span> <span class="flip-volume">${parseFloat(f.volume).toFixed(2)}</span></p>
+            </div>
+            <p class="text-gray-500 text-xs mt-4 text-right flip-age">${Math.round(Date.now()/1000 - f.timestamp)}s ago</p>
+        `;
+
+        // Trigger CSS transition
+        requestAnimationFrame(() => {
+            card.classList.add('flip-enter-active');
+            setTimeout(() => card.classList.remove('flip-enter flip-enter-active'), 300);
+        });
+
+        return card;
+    }
+
+    function escapeHtml(unsafe) {
+        if (unsafe === null || unsafe === undefined) return '';
+        return String(unsafe).replace(/[&<>"'`]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' })[c]);
+    }
+
+    function updateCard(card, f) {
+        card.querySelector('.flip-profit').textContent = formatNumber(f.profit);
+        const lowest = card.querySelector('.flip-lowest'); if (lowest) lowest.textContent = formatNumber(f.lowest);
+        const second = card.querySelector('.flip-second'); if (second) second.textContent = formatNumber(f.second);
+        const volume = card.querySelector('.flip-volume'); if (volume) volume.textContent = parseFloat(f.volume).toFixed(2);
+        const age = card.querySelector('.flip-age'); if (age) age.textContent = `${Math.round(Date.now()/1000 - f.timestamp)}s ago`;
+        if (f.timestamp) card.dataset.timestamp = f.timestamp;
+        const img = card.querySelector('img'); if (img && f.icon) img.src = f.icon;
+    }
+
+    function removeCard(card) {
+        card.classList.add('flip-exit');
+        requestAnimationFrame(() => {
+            card.classList.add('flip-exit-active');
+            setTimeout(() => card.remove(), 300);
+        });
+    }
+
+    async function fetchAndSyncFlips() {
+        try {
+            const resp = await fetch('/flips');
+            if (!resp.ok) return;
+            const flips = await resp.json();
+            // server returns oldest -> newest; display newest first
+            const display = flips.slice().reverse();
+            const container = document.querySelector('.grid');
+            const existing = new Map();
+            container.querySelectorAll('.flip-card').forEach(el => { if (el.dataset && el.dataset.uuid) existing.set(el.dataset.uuid, el); });
+
+            const seen = new Set();
+            // Add/update
+            for (const f of display) {
+                if (!f.uuid) continue; // ignore if missing
+                seen.add(f.uuid);
+                if (existing.has(f.uuid)) {
+                    updateCard(existing.get(f.uuid), f);
+                } else {
+                    const card = createFlipCard(f);
+                    // Prepend new card to top
+                    container.insertBefore(card, container.firstChild);
+                }
+            }
+
+            // Remove cards no longer present
+            for (const [uuid, card] of existing.entries()) {
+                if (!seen.has(uuid)) removeCard(card);
+            }
+        } catch (err) {
+            console.error('Error fetching flips:', err);
+        }
+    }
+
+    function startPollLoop() {
+        fetchAndSyncFlips();
+        setInterval(fetchAndSyncFlips, POLL_INTERVAL);
+        // Update ages every second
+        setInterval(() => {
+            document.querySelectorAll('.flip-age').forEach(el => {
+                const card = el.closest('.flip-card');
+                const ts = parseFloat(card.dataset.timestamp || card.getAttribute('data-timestamp') || 0);
+                if (ts) el.textContent = `${Math.round(Date.now()/1000 - ts)}s ago`;
+            });
+        }, 1000);
+    }
+
+</script>
+</html>

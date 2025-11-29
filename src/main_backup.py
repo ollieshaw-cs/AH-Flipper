@@ -13,7 +13,6 @@ from typing import Dict, List, Any, Optional, Union
 from NBT_Decoder import ItemDecoder
 from discord_notify import DiscordNotifier
 from aiohttp import ClientSession, TCPConnector
-from state import latest_flips
 
 # -----------------------------
 # CONFIG AND SETTINGS
@@ -371,20 +370,6 @@ async def find_flips():
                     itemURL=itemURL
                 )
 
-                latest_flips.append({
-                    "name": a1["full_name"],
-                    "id": item_id,
-                    "profit": profit,
-                    "lowest": lowest,
-                    "second": second,
-                    "volume": avg_vol,
-                    "uuid": uid,
-                    "icon": itemURL,
-                    "timestamp": time.time()
-                })
-
-
-
         print(f"Found {found_flips} flips")
 
 # -----------------------------
@@ -406,13 +391,4 @@ async def main_loop():
         await asyncio.sleep(sleep_time)
 
 if __name__ == "__main__":
-    import threading
-    import uvicorn
-
-    def start_dashboard():
-        uvicorn.run("dashboard_server:app", host="127.0.0.1", port=8000, reload=False)
-
-    threading.Thread(target=start_dashboard, daemon=True).start()
-
     asyncio.run(main_loop())
-
