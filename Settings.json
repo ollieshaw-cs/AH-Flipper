@@ -1,20 +1,5 @@
-/*
-
-Profit:
-
-    if 'UseProfitCostRatio' is true, it will ignore the 'MinProfit' and only show flips where the profit 
-    for the flip is 'ProfitRatio' times the cost of the item
-
-    Example:
-
-    if UseProfitCostRatio = true and ProfitRatio = 2 -> only shows flips where the profit is 2x the cost
-
-*/
-
 {
     "ALLOWED_CATEGORIES" : ["weapon", "armor"],
-
-    //"MIN_PROFIT" : "650,000",
 
     "Profit" : {
         "MinProfit" : "650,000",

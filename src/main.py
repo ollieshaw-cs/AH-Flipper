@@ -1,10 +1,11 @@
-import json5
+import json
 import asyncio
 import aiohttp
 import time
 import os
 import gzip
 import atexit
+import hashlib
 
 from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
@@ -24,7 +25,7 @@ def parseSettingsValue(v: str) -> float:
         return int(v.replace(",", ""))
 
 with open("Settings.json", "r") as file:
-    data = json5.load(file)
+    data = json.load(file)
 
 ALLOWED_CATEGORIES = set(data["ALLOWED_CATEGORIES"])
 WEBHOOK_URL = data["WEBHOOK_URL"]
@@ -32,7 +33,6 @@ WEBHOOK_URL = data["WEBHOOK_URL"]
 MIN_PROFIT = parseSettingsValue(data["Profit"]["MinProfit"])
 UseProfitCostRatio: bool = data["Profit"]["UseProfitCostRatio"]
 ProfitRatio = parseSettingsValue(data["Profit"]["ProfitRatio"])
-
 if ProfitRatio < 1: ProfitRatio = 1
 
 MAX_COST = parseSettingsValue(data["MAX_COST"])
@@ -42,46 +42,88 @@ MIN_DAILY_VOLUME = parseSettingsValue(data["MIN_DAILY_VOLUME"])
 notifier = DiscordNotifier(WEBHOOK_URL)
 
 with open("Reforges.json", "r") as f:
-    REFORGES = set(json5.load(f).get("Reforges", []))
+    REFORGES = set(json.load(f).get("Reforges", []))
 
 # -----------------------------
 # PERSISTENT CACHES
 # -----------------------------
 
 _name_cache: Dict[str, str] = {}
-_tag_cache: Dict[str, Optional[str]] = {}
-_icons_cache = {}
+_tag_cache: Dict[str, str] = {}  # key = hash of item_bytes, value = SkyBlock_id
+_icons_cache: Dict[str, str] = {}
 
 name_cache_path = "Cache\\name_cache.json"
 tag_cache_path = "Cache\\tag_cache"
 item_icons_path = "Cache\\item_icons.json"
 
+# -----------------------------
+# HASH FUNCTION FOR ITEM BYTES
+# -----------------------------
+
+def get_item_hash(item_bytes: Any) -> str:
+    """
+    Generate a short, fixed-length hash for item_bytes.
+    Accepts bytes or str from the auction API.
+    """
+    if isinstance(item_bytes, str):
+        item_bytes = item_bytes.encode('utf-8')
+    return hashlib.sha256(item_bytes).hexdigest()
+
+
+def get_item_id(item_bytes: Any) -> Optional[str]:
+    if item_bytes is None:
+        return None
+
+    key = get_item_hash(item_bytes)
+    if key in _tag_cache:
+        return _tag_cache[key]
+
+    try:
+        decoded = ItemDecoder.decode(item_bytes)
+        tag = decoded.get("SkyBlock_id")
+    except Exception:
+        tag = None
+
+    if tag is not None:
+        _tag_cache[key] = tag
+    return tag
+
+def get_item_ids_batch(item_bytes_list: List[Any]) -> List[Optional[str]]:
+    return [get_item_id(item_bytes) for item_bytes in item_bytes_list]
+
+# -----------------------------
+# LOAD / SAVE CACHES
+# -----------------------------
+
 def load_caches():
+    # Load name cache
     if os.path.exists(name_cache_path):
         try:
             with open(name_cache_path, "r") as f:
-                _name_cache.update(json5.load(f))
+                _name_cache.update(json.load(f))
             print(f"[Cache] Loaded {_name_cache.__len__():,} names")
         except:
             print("[Cache] Failed to load name_cache.json")
     else:
         print(f"{name_cache_path} doesn't exist")
 
+    # Load tag cache
     gz_path = tag_cache_path + ".gz"
     if os.path.exists(gz_path):
         try:
             with gzip.open(gz_path, "rt", encoding="utf-8") as f:
-                _tag_cache.update(json5.load(f))
+                _tag_cache.update(json.load(f))
             print(f"[Cache] Loaded {_tag_cache.__len__():,} tags")
         except:
-            print("[Cache] Failed to load tag_cache.json.gz")
+            print("[Cache] Failed to load tag_cache.gz")
     else:
         print(f"{gz_path} doesn't exist")
 
+    # Load icon cache
     if os.path.exists(item_icons_path):
         try:
             with open(item_icons_path, "r") as f:
-                _icons_cache.update(json5.load(f))
+                _icons_cache.update(json.load(f))
             print(f"[Cache] Loaded {_icons_cache.__len__():,} URLs")
         except:
             print("[Cache] Failed to load item_icons.json")
@@ -91,9 +133,11 @@ def load_caches():
 def save_caches():
     try:
         with open(name_cache_path, "w") as f:
-            json5.dump(_name_cache, f)
+            json.dump(_name_cache, f, indent=4)
         with gzip.open(tag_cache_path + ".gz", "wt", encoding="utf-8") as f:
-            json5.dump(_tag_cache, f)
+            json.dump(_tag_cache, f)
+        with open(item_icons_path, "w") as f:
+            json.dump(_icons_cache, f, indent=4)
         print("[Cache] Saved caches")
     except Exception as e:
         print(f"[Cache] Failed to save caches: {e}")
@@ -118,7 +162,6 @@ def clean_name(name: str) -> str:
         clean_name.banned_chars = str.maketrans('', '', "✪✿⚚✦➊➋➌➍➎")
 
     name = name.translate(clean_name.banned_chars).strip()
-
     parts = name.split()
     while parts and parts[0] in REFORGES:
         parts.pop(0)
@@ -132,23 +175,6 @@ def clean_name(name: str) -> str:
 
     _name_cache[name] = name
     return name
-
-def get_item_id(item_bytes: Any) -> Optional[str]:
-    if item_bytes is None:
-        return None
-    key = str(item_bytes)
-    if key in _tag_cache:
-        return _tag_cache[key]
-    try:
-        decoded = ItemDecoder.decode(item_bytes)
-        tag = decoded.get("SkyBlock_id")
-    except Exception:
-        tag = None
-    _tag_cache[key] = tag
-    return tag
-
-def get_item_ids_batch(item_bytes_list: List[Any]) -> List[Optional[str]]:
-    return [get_item_id(item_bytes) for item_bytes in item_bytes_list]
 
 # -----------------------------
 # AUCTION FETCHING
@@ -172,7 +198,6 @@ async def fetch_page(session: ClientSession, page: int, semaphore: asyncio.Semap
 
 async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
     grouped = defaultdict(list)
-
     connector = TCPConnector(limit=50, limit_per_host=10, keepalive_timeout=30)
     timeout = aiohttp.ClientTimeout(total=120, sock_connect=10, sock_read=20)
 
@@ -183,7 +208,6 @@ async def fetch_bins_async() -> Dict[str, List[Dict[str, Any]]]:
 
         semaphore = asyncio.Semaphore(15)
         tasks = [fetch_page(session, i, semaphore) for i in range(total_pages)]
-
         all_pages = await asyncio.gather(*tasks, return_exceptions=True)
         all_auctions = []
         for page in all_pages:
@@ -241,7 +265,6 @@ async def get_avg_daily_volume(session: ClientSession, item_id: str) -> Optional
         volume, ts = _volume_cache[item_id]
         if now - ts < VOLUME_CACHE_TTL:
             return volume
-
     try:
         url = f"https://sky.coflnet.com/api/item/price/{item_id}/history/day"
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
