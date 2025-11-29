@@ -1,6 +1,4 @@
-import json
 import json5
-import requests
 import asyncio
 import aiohttp
 import time
@@ -44,7 +42,7 @@ MIN_DAILY_VOLUME = parseSettingsValue(data["MIN_DAILY_VOLUME"])
 notifier = DiscordNotifier(WEBHOOK_URL)
 
 with open("Reforges.json", "r") as f:
-    REFORGES = set(json.load(f).get("Reforges", []))
+    REFORGES = set(json5.load(f).get("Reforges", []))
 
 # -----------------------------
 # PERSISTENT CACHES
@@ -62,7 +60,7 @@ def load_caches():
     if os.path.exists(name_cache_path):
         try:
             with open(name_cache_path, "r") as f:
-                _name_cache.update(json.load(f))
+                _name_cache.update(json5.load(f))
             print(f"[Cache] Loaded {_name_cache.__len__():,} names")
         except:
             print("[Cache] Failed to load name_cache.json")
@@ -73,7 +71,7 @@ def load_caches():
     if os.path.exists(gz_path):
         try:
             with gzip.open(gz_path, "rt", encoding="utf-8") as f:
-                _tag_cache.update(json.load(f))
+                _tag_cache.update(json5.load(f))
             print(f"[Cache] Loaded {_tag_cache.__len__():,} tags")
         except:
             print("[Cache] Failed to load tag_cache.json.gz")
@@ -83,7 +81,7 @@ def load_caches():
     if os.path.exists(item_icons_path):
         try:
             with open(item_icons_path, "r") as f:
-                _icons_cache.update(json.load(f))
+                _icons_cache.update(json5.load(f))
             print(f"[Cache] Loaded {_icons_cache.__len__():,} URLs")
         except:
             print("[Cache] Failed to load item_icons.json")
@@ -93,9 +91,9 @@ def load_caches():
 def save_caches():
     try:
         with open(name_cache_path, "w") as f:
-            json.dump(_name_cache, f)
+            json5.dump(_name_cache, f)
         with gzip.open(tag_cache_path + ".gz", "wt", encoding="utf-8") as f:
-            json.dump(_tag_cache, f)
+            json5.dump(_tag_cache, f)
         print("[Cache] Saved caches")
     except Exception as e:
         print(f"[Cache] Failed to save caches: {e}")
