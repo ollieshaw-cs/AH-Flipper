@@ -54,6 +54,9 @@ MinProfitPercentage = parsePercent(data["Profit"]["MinProfitPercentage"])  # The
 
 MAX_COST = parseSettingsValue(data["MAX_COST"])
 MIN_LISTINGS = parseSettingsValue(data["MIN_LISTINGS"])
+
+if MIN_LISTINGS < 2: MIN_LISTINGS = 2
+
 MIN_DAILY_VOLUME = parseSettingsValue(data["MIN_DAILY_VOLUME"])
 
 # Discord webhook support removed — webhook URL no longer required

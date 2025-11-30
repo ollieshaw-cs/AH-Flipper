@@ -2,93 +2,264 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Skyblock Flip Dashboard</title>
 
     <!-- TailwindCSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
+        :root {
+            --primary: #8b5cf6;
+            --primary-dark: #7c3aed;
+            --background: #0f0f1a;
+            --card-bg: #1a1a2e;
+            --card-hover: #232342;
+            --text-primary: #f8fafc;
+            --text-secondary: #cbd5e1;
+            --profit: #10b981;
+            --loss: #ef4444;
+        }
+        
         body {
-            background-color: #0e0e11;
+            background-color: var(--background);
+            font-family: 'Inter', sans-serif;
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(139, 92, 246, 0.05) 0%, transparent 20%),
+                radial-gradient(circle at 85% 30%, rgba(99, 102, 241, 0.05) 0%, transparent 20%);
+            min-height: 100vh;
         }
+        
         .card {
-            background: #1a1a1d;
+            background: var(--card-bg);
             border-radius: 16px;
-            padding: 20px;
-            box-shadow: 0 0 15px #0005;
-            transition: 0.2s;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            position: relative;
+            overflow: hidden;
         }
+        
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary), #6366f1);
+        }
+        
         .card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 0 25px #0007;
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            background: var(--card-hover);
+        }
+        
+        .glow {
+            text-shadow: 0 0 20px rgba(139, 92, 246, 0.5);
+        }
+        
+        .profit-badge {
+            background: linear-gradient(135deg, var(--profit), #059669);
+            color: white;
+            font-weight: 600;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .flip-enter { 
+            transform: translateY(20px); 
+            opacity: 0; 
+        }
+        
+        .flip-enter.flip-enter-active { 
+            transform: none; 
+            opacity: 1; 
+            transition: transform 400ms ease, opacity 400ms ease; 
+        }
+        
+        .flip-exit { 
+            transform: none; 
+            opacity: 1; 
+        }
+        
+        .flip-exit.flip-exit-active { 
+            transform: translateY(-20px); 
+            opacity: 0; 
+            transition: transform 400ms ease, opacity 400ms ease; 
+        }
+        
+        .stat-value {
+            font-weight: 600;
+            font-size: 1.125rem;
+        }
+        
+        .item-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover .item-icon {
+            transform: scale(1.05);
+            border-color: rgba(139, 92, 246, 0.3);
+        }
+        
+        .copy-btn {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.2s ease;
+        }
+        
+        .copy-btn:hover {
+            background: rgba(139, 92, 246, 0.2);
+            border-color: rgba(139, 92, 246, 0.4);
+        }
+        
+        .empty-state {
+            background: rgba(255, 255, 255, 0.03);
+            border: 2px dashed rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 60px 20px;
+        }
+        
+        .header-gradient {
+            background: linear-gradient(135deg, var(--primary), #6366f1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
     </style>
-
-    <!-- Auto-refresh removed; replaced with JS polling to allow smooth animations -->
 </head>
 
-<body class="text-gray-200 p-8">
-    <h1 class="text-4xl font-bold mb-6 text-center text-purple-400">
-        SkyBlock Flip Dashboard
-    </h1>
+<body class="text-gray-200 p-6">
+    <div class="max-w-7xl mx-auto">
+        <div class="text-center mb-10">
+            <h1 class="text-5xl font-bold mb-3 header-gradient">
+                <i class="fas fa-chart-line mr-3"></i>SkyBlock Flip Dashboard
+            </h1>
+            <p class="text-lg text-gray-400 max-w-2xl mx-auto">
+                Track profitable item flips in Hypixel SkyBlock with real-time updates
+            </p>
+            <div class="mt-4 flex items-center justify-center gap-3">
+                <button id="sound-toggle-btn" class="text-xs px-3 py-1.5 rounded-lg flex items-center gap-2 bg-white/5 border border-white/10" aria-pressed="false" aria-label="Toggle sound notifications">
+                    <i id="sound-icon" class="fas fa-bell"></i>
+                    <span id="sound-label">Sound: Off</span>
+                </button>
+                <span id="sound-note" class="text-xs text-gray-400">Click to enable sounds (browser permission required)</span>
+            </div>
+        </div>
 
-    {% if flips|length == 0 %}
-    <p class="text-center text-gray-400">No flips detected yet...</p>
-    {% endif %}
+        {% if flips|length == 0 %}
+        <div class="empty-state text-center">
+            <i class="fas fa-search text-5xl text-gray-500 mb-4"></i>
+            <h3 class="text-xl font-semibold text-gray-300 mb-2">No flips detected yet</h3>
+            <p class="text-gray-500">Profitable item flips will appear here as they're found</p>
+        </div>
+        {% endif %}
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {% for f in flips %}
-        <div class="card flip-card" data-uuid="{{ f.uuid }}" data-timestamp="{{ f.timestamp }}">
-            <div class="flex items-center gap-4">
-                {% if f.icon %}
-                <img src="{{ f.icon }}" class="w-12 h-12 rounded-md">
-                {% endif %}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {% for f in flips %}
+            <div class="card flip-card" data-uuid="{{ f.uuid }}" data-timestamp="{{ f.timestamp }}">
+                <div class="flex items-start justify-between mb-4">
+                    <div class="flex items-center gap-4">
+                        {% if f.icon %}
+                        <img src="{{ f.icon }}" class="item-icon">
+                        {% endif %}
 
-                <div>
-                    <p class="text-xl font-semibold text-white">{{ f.name }}</p>
-                    <p class="text-xs text-gray-400">{{ f.id }}</p>
-                    {% if f.uuid %}
-                    <div class="mt-1 flex items-center gap-2">
-                        <p class="text-[10px] text-gray-400 select-text">UUID: <span class="font-mono text-xs text-gray-200">{{ f.uuid }}</span></p>
-                        <button
-                            class="copy-uuid-btn text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 px-2 py-1 rounded"
-                            type="button"
-                            aria-label="Copy /viewauction command"
-                            data-uuid="{{ f.uuid }}"
-                        >Copy</button>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-lg font-semibold text-white truncate">{{ f.name }}</p>
+                            <p class="text-xs text-gray-400 truncate">{{ f.id }}</p>
+                            
+                            {% if f.uuid %}
+                            <div class="mt-2 flex items-center gap-2">
+                                <button
+                                    class="copy-btn text-xs text-gray-300 px-3 py-1.5 rounded-lg flex items-center gap-1"
+                                    type="button"
+                                    aria-label="Copy /viewauction command"
+                                    data-uuid="{{ f.uuid }}"
+                                >
+                                    <i class="fas fa-copy text-xs"></i>
+                                    <span>Copy</span>
+                                </button>
+                            </div>
+                            {% endif %}
+                        </div>
                     </div>
-                    {% endif %}
+                </div>
+
+                <div class="mb-4">
+                    <div class="profit-badge">
+                        <i class="fas fa-coins"></i>
+                        <span class="flip-profit">{{ "{:,}".format(f.profit) }}</span>
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400 flex items-center gap-2">
+                            <i class="fas fa-tag text-xs"></i>
+                            <span>Lowest BIN</span>
+                        </span>
+                        <span class="stat-value flip-lowest">{{ "{:,}".format(f.lowest) }}</span>
+                    </div>
+                    
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400 flex items-center gap-2">
+                            <i class="fas fa-tags text-xs"></i>
+                            <span>Second BIN</span>
+                        </span>
+                        <span class="stat-value flip-second">{{ "{:,}".format(f.second) }}</span>
+                    </div>
+                    
+                    <div class="flex justify-between items-center">
+                        <span class="text-gray-400 flex items-center gap-2">
+                            <i class="fas fa-chart-bar text-xs"></i>
+                            <span>Daily Volume</span>
+                        </span>
+                        <span class="stat-value flip-volume">{{ "%.2f"|format(f.volume) }}</span>
+                    </div>
+                </div>
+
+                <div class="mt-5 pt-4 border-t border-gray-800 flex justify-between items-center">
+                    <span class="text-gray-500 text-xs flex items-center gap-1">
+                        <i class="far fa-clock"></i>
+                        <span class="flip-age">{{ (time.time() - f.timestamp)|round }}s ago</span>
+                    </span>
+                    <span class="text-xs text-gray-500 font-mono">#{{ loop.index }}</span>
                 </div>
             </div>
-
-                <div class="mt-4 space-y-1">
-                <p><span class="text-gray-400">Profit:</span> <span class="text-green-400 font-bold flip-profit">{{ "{:,}".format(f.profit) }}</span></p>
-                <p><span class="text-gray-400">Lowest BIN:</span> <span class="flip-lowest">{{ "{:,}".format(f.lowest) }}</span></p>
-                <p><span class="text-gray-400">Second BIN:</span> <span class="flip-second">{{ "{:,}".format(f.second) }}</span></p>
-                <p><span class="text-gray-400">Daily Volume:</span> <span class="flip-volume">{{ "%.2f"|format(f.volume) }}</span></p>
-            </div>
-
-            <p class="text-gray-500 text-xs mt-4 text-right flip-age">
-                {{ (time.time() - f.timestamp)|round }}s ago
-            </p>
+            {% endfor %}
         </div>
-        {% endfor %}
     </div>
 </body>
-<style>
-/* Insert / fade-in animation for new flips */
-.flip-enter { transform: translateY(8px); opacity: 0; }
-.flip-enter.flip-enter-active { transform: none; opacity: 1; transition: transform 220ms ease, opacity 220ms ease; }
-.flip-exit { transform: none; opacity: 1; }
-.flip-exit.flip-exit-active { transform: translateY(-8px); opacity: 0; transition: transform 220ms ease, opacity 220ms ease; }
-</style>
 
 <script>
     // Copy to clipboard handler with fallback and temporary label change for feedback
     async function copyUuid(e) {
-        const btn = e.target;
+        const btn = e.target.closest('.copy-btn');
+        if (!btn) return;
+        
         const uuid = btn.dataset.uuid;
         if (!uuid) return;
+        
         // Copy the `/viewauction <uuid>` command instead of the plain UUID
         const command = `/viewauction ${uuid}`;
         let success = false;
@@ -109,15 +280,122 @@
             success = false;
         }
 
-        const oldText = btn.textContent;
+        const icon = btn.querySelector('i');
+        const text = btn.querySelector('span:last-child');
+        const oldIcon = icon.className;
+        const oldText = text.textContent;
+        
         if (success) {
-            btn.textContent = 'Copied!';
-            setTimeout(() => { btn.textContent = oldText; }, 1000);
+            icon.className = 'fas fa-check text-xs';
+            text.textContent = 'Copied!';
+            btn.classList.add('bg-green-500/20', 'border-green-500/40');
+            setTimeout(() => { 
+                icon.className = oldIcon; 
+                text.textContent = oldText;
+                btn.classList.remove('bg-green-500/20', 'border-green-500/40');
+            }, 1500);
         } else {
-            btn.textContent = 'Failed';
-            setTimeout(() => { btn.textContent = oldText; }, 1000);
+            icon.className = 'fas fa-times text-xs';
+            text.textContent = 'Failed';
+            btn.classList.add('bg-red-500/20', 'border-red-500/40');
+            setTimeout(() => { 
+                icon.className = oldIcon; 
+                text.textContent = oldText;
+                btn.classList.remove('bg-red-500/20', 'border-red-500/40');
+            }, 1500);
         }
     }
+
+    // -------------------------
+    // Sound notification utils
+    // -------------------------
+    const audioState = {
+        enabled: false,
+        lastPlayed: 0,
+        minInterval: 600 // ms between sounds to avoid spam
+    };
+
+    let audioCtx = null;
+    function ensureAudioContext() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    // Play a short beep with the Web Audio API; no files needed
+    function playNotificationSound() {
+        if (!audioState.enabled) return;
+        const now = Date.now();
+        if (now - audioState.lastPlayed < audioState.minInterval) return;
+        audioState.lastPlayed = now;
+        try {
+            ensureAudioContext();
+            if (audioCtx.state === 'suspended') {
+                // try to resume; this requires a user gesture normally
+                audioCtx.resume().catch(() => {});
+            }
+            const duration = 0.08; // seconds
+            const o = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            o.type = 'sine';
+            o.frequency.value = 880;
+            g.gain.value = 0.001; // start very quiet
+            o.connect(g);
+            g.connect(audioCtx.destination);
+            const t = audioCtx.currentTime;
+            g.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+            o.start(t);
+            o.stop(t + duration);
+        } catch (e) {
+            // ignore if audio fails for any reason
+            console.warn('Audio notification failed', e);
+        }
+    }
+
+    function setSoundEnabled(val) {
+        audioState.enabled = !!val;
+        const icon = document.getElementById('sound-icon');
+        const label = document.getElementById('sound-label');
+        const btn = document.getElementById('sound-toggle-btn');
+        if (audioState.enabled) {
+            icon.className = 'fas fa-bell';
+            label.textContent = 'Sound: On';
+            btn.classList.add('bg-green-600/20', 'border-green-600/30');
+            btn.setAttribute('aria-pressed', 'true');
+        } else {
+            icon.className = 'fas fa-bell-slash';
+            label.textContent = 'Sound: Off';
+            btn.classList.remove('bg-green-600/20', 'border-green-600/30');
+            btn.setAttribute('aria-pressed', 'false');
+        }
+    }
+
+    function toggleSound() {
+        const newVal = !audioState.enabled;
+        // ensure audio context kickoff only after interaction
+        ensureAudioContext();
+        // try to unlock audio by doing a short play in response to the click
+        audioCtx.resume().then(() => {}).catch(() => {});
+        setSoundEnabled(newVal);
+        // optional quick confirmation beep when turning on
+        if (newVal) playNotificationSound();
+    }
+
+    // Always start with sound off when the page is opened; the user must click to enable.
+    setSoundEnabled(false);
+
+    // Attach toggle handler
+    document.addEventListener('DOMContentLoaded', () => {
+        const soundBtn = document.getElementById('sound-toggle-btn');
+        if (soundBtn) soundBtn.addEventListener('click', (e) => { toggleSound(); });
+
+        // If user previously enabled sound, try to resume audio if already allowed
+        if (audioState.enabled) {
+            ensureAudioContext();
+            audioCtx.resume().catch(() => {});
+        }
+    });
 
     // Attach event listeners on DOM loaded
     document.addEventListener('DOMContentLoaded', () => {
@@ -125,46 +403,48 @@
         // Use event delegation for copy buttons so dynamically-added cards don't need re-attaching
         container.addEventListener('click', (evt) => {
             const target = evt.target;
-            if (target.classList && target.classList.contains('copy-uuid-btn')) {
-                copyUuid({ target });
+            if (target.closest('.copy-btn')) {
+                copyUuid(evt);
             }
         });
 
-            // Start EventSource for real-time updates; fallback to polling if unsupported or it errors
-            try {
-                const es = new EventSource('/events');
-                es.onmessage = (ev) => {
-                    try {
-                        const f = JSON.parse(ev.data);
-                        if (!f || !f.uuid) return;
-                        const container = document.querySelector('.grid');
-                        const existing = container.querySelector(`[data-uuid="${f.uuid}"]`);
-                        if (existing) {
-                            updateCard(existing, f);
-                        } else {
-                            const card = createFlipCard(f);
-                            container.insertBefore(card, container.firstChild);
-                        }
-                    } catch (e) {
-                        console.error('Error parsing SSE message', e);
+        // Start EventSource for real-time updates; fallback to polling if unsupported or it errors
+        try {
+            const es = new EventSource('/events');
+            es.onmessage = (ev) => {
+                try {
+                    const f = JSON.parse(ev.data);
+                    if (!f || !f.uuid) return;
+                    const container = document.querySelector('.grid');
+                    const existing = container.querySelector(`[data-uuid="${f.uuid}"]`);
+                    if (existing) {
+                        updateCard(existing, f);
+                    } else {
+                        const card = createFlipCard(f);
+                        // Play sound only for new flips
+                        playNotificationSound();
+                        container.insertBefore(card, container.firstChild);
                     }
-                };
-                es.onerror = () => {
-                    console.warn('EventSource connection failed; falling back to polling');
-                    es.close();
-                    startPollLoop();
-                };
-                // If supported and connected, also periodically update ages (already done by startPollLoop), so start that independently
-                setInterval(() => {
-                    document.querySelectorAll('.flip-age').forEach(el => {
-                        const card = el.closest('.flip-card');
-                        const ts = parseFloat(card.dataset.timestamp || card.getAttribute('data-timestamp') || 0);
-                        if (ts) el.textContent = `${Math.round(Date.now()/1000 - ts)}s ago`;
-                    });
-                }, 1000);
-            } catch (e) {
+                } catch (e) {
+                    console.error('Error parsing SSE message', e);
+                }
+            };
+            es.onerror = () => {
+                console.warn('EventSource connection failed; falling back to polling');
+                es.close();
                 startPollLoop();
-            }
+            };
+            // If supported and connected, also periodically update ages (already done by startPollLoop), so start that independently
+            setInterval(() => {
+                document.querySelectorAll('.flip-age').forEach(el => {
+                    const card = el.closest('.flip-card');
+                    const ts = parseFloat(card.dataset.timestamp || card.getAttribute('data-timestamp') || 0);
+                    if (ts) el.textContent = `${Math.round(Date.now()/1000 - ts)}s ago`;
+                });
+            }, 1000);
+        } catch (e) {
+            startPollLoop();
+        }
     });
 
     // -------------------------
@@ -183,31 +463,69 @@
         if (f.timestamp) card.dataset.timestamp = f.timestamp;
 
         card.innerHTML = `
-            <div class="flex items-center gap-4">
-                ${f.icon ? `<img src="${f.icon}" class="w-12 h-12 rounded-md">` : ''}
-                <div>
-                    <p class="text-xl font-semibold text-white">${escapeHtml(f.name)}</p>
-                    <p class="text-xs text-gray-400">${escapeHtml(f.id)}</p>
-                    ${f.uuid ? `
-                    <div class="mt-1 flex items-center gap-2">
-                        <p class="text-[10px] text-gray-400 select-text">UUID: <span class="font-mono text-xs text-gray-200">${escapeHtml(f.uuid)}</span></p>
-                        <button class="copy-uuid-btn text-xs bg-gray-800 hover:bg-gray-700 text-gray-200 px-2 py-1 rounded" type="button" aria-label="Copy /viewauction command" data-uuid="${escapeHtml(f.uuid)}">Copy</button>
-                    </div>` : ''}
+            <div class="flex items-start justify-between mb-4">
+                <div class="flex items-center gap-4">
+                    ${f.icon ? `<img src="${f.icon}" class="item-icon">` : ''}
+                    <div class="flex-1 min-w-0">
+                        <p class="text-lg font-semibold text-white truncate">${escapeHtml(f.name)}</p>
+                        <p class="text-xs text-gray-400 truncate">${escapeHtml(f.id)}</p>
+                        ${f.uuid ? `
+                        <div class="mt-2 flex items-center gap-2">
+                            <button class="copy-btn text-xs text-gray-300 px-3 py-1.5 rounded-lg flex items-center gap-1" type="button" aria-label="Copy /viewauction command" data-uuid="${escapeHtml(f.uuid)}">
+                                <i class="fas fa-copy text-xs"></i>
+                                <span>Copy</span>
+                            </button>
+                        </div>` : ''}
+                    </div>
                 </div>
             </div>
-            <div class="mt-4 space-y-1">
-                <p><span class="text-gray-400">Profit:</span> <span class="text-green-400 font-bold flip-profit">${formatNumber(f.profit)}</span></p>
-                <p><span class="text-gray-400">Lowest BIN:</span> <span class="flip-lowest">${formatNumber(f.lowest)}</span></p>
-                <p><span class="text-gray-400">Second BIN:</span> <span class="flip-second">${formatNumber(f.second)}</span></p>
-                <p><span class="text-gray-400">Daily Volume:</span> <span class="flip-volume">${parseFloat(f.volume).toFixed(2)}</span></p>
+
+            <div class="mb-4">
+                <div class="profit-badge">
+                    <i class="fas fa-coins"></i>
+                    <span class="flip-profit">${formatNumber(f.profit)}</span>
+                </div>
             </div>
-            <p class="text-gray-500 text-xs mt-4 text-right flip-age">${Math.round(Date.now()/1000 - f.timestamp)}s ago</p>
+
+            <div class="space-y-3">
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400 flex items-center gap-2">
+                        <i class="fas fa-tag text-xs"></i>
+                        <span>Lowest BIN</span>
+                    </span>
+                    <span class="stat-value flip-lowest">${formatNumber(f.lowest)}</span>
+                </div>
+                
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400 flex items-center gap-2">
+                        <i class="fas fa-tags text-xs"></i>
+                        <span>Second BIN</span>
+                    </span>
+                    <span class="stat-value flip-second">${formatNumber(f.second)}</span>
+                </div>
+                
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400 flex items-center gap-2">
+                        <i class="fas fa-chart-bar text-xs"></i>
+                        <span>Daily Volume</span>
+                    </span>
+                    <span class="stat-value flip-volume">${parseFloat(f.volume).toFixed(2)}</span>
+                </div>
+            </div>
+
+            <div class="mt-5 pt-4 border-t border-gray-800 flex justify-between items-center">
+                <span class="text-gray-500 text-xs flex items-center gap-1">
+                    <i class="far fa-clock"></i>
+                    <span class="flip-age">${Math.round(Date.now()/1000 - f.timestamp)}s ago</span>
+                </span>
+                <span class="text-xs text-gray-500 font-mono">#1</span>
+            </div>
         `;
 
         // Trigger CSS transition
         requestAnimationFrame(() => {
             card.classList.add('flip-enter-active');
-            setTimeout(() => card.classList.remove('flip-enter flip-enter-active'), 300);
+            setTimeout(() => card.classList.remove('flip-enter', 'flip-enter-active'), 500);
         });
 
         return card;
@@ -232,7 +550,7 @@
         card.classList.add('flip-exit');
         requestAnimationFrame(() => {
             card.classList.add('flip-exit-active');
-            setTimeout(() => card.remove(), 300);
+            setTimeout(() => card.remove(), 500);
         });
     }
 
@@ -258,6 +576,8 @@
                     const card = createFlipCard(f);
                     // Prepend new card to top
                     container.insertBefore(card, container.firstChild);
+                    // Play sound for newly added flips
+                    playNotificationSound();
                 }
             }
 
@@ -265,9 +585,22 @@
             for (const [uuid, card] of existing.entries()) {
                 if (!seen.has(uuid)) removeCard(card);
             }
+            
+            // Update numbering
+            updateCardNumbers();
         } catch (err) {
             console.error('Error fetching flips:', err);
         }
+    }
+    
+    function updateCardNumbers() {
+        const cards = document.querySelectorAll('.flip-card');
+        cards.forEach((card, index) => {
+            const numberElement = card.querySelector('.font-mono');
+            if (numberElement) {
+                numberElement.textContent = `#${index + 1}`;
+            }
+        });
     }
 
     function startPollLoop() {
@@ -282,6 +615,5 @@
             });
         }, 1000);
     }
-
 </script>
 </html>
